@@ -33,3 +33,5 @@
             android:value="2" />
     </application>
 </manifest>
+    <uses-permission android:name="android.permission.CAMERA" />
+
