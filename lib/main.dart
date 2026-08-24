@@ -131,18 +131,16 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     _mapController.move(centroAjustado, zoom);
   }
 
-  // OTIMIZADOR INTELIGENTE: Põe a parada mais próxima de você como a próxima da fila
   void _ordenarParadasPorProximidade() {
     final entregues = _listaParadas.where((p) => p['entregue'] == true).toList();
     var pendentes = _listaParadas.where((p) => p['entregue'] == false).toList();
 
     if (pendentes.length > 1) {
-      // Ordena as pendentes calculando a distância em linha reta até a posição atual do veículo
       pendentes.sort((a, b) {
         LatLng posA = a['latLng'];
         LatLng posB = b['latLng'];
-        double distA = math.pow(posA.latitude - _posicaoAtual.latitude, 2) + math.pow(posA.longitude - _posicaoAtual.longitude, 2);
-        double distB = math.pow(posB.latitude - _posicaoAtual.latitude, 2) + math.pow(posB.longitude - _posicaoAtual.longitude, 2);
+        double distA = (math.pow(posA.latitude - _posicaoAtual.latitude, 2) + math.pow(posA.longitude - _posicaoAtual.longitude, 2)).toDouble();
+        double distB = (math.pow(posB.latitude - _posicaoAtual.latitude, 2) + math.pow(posB.longitude - _posicaoAtual.longitude, 2)).toDouble();
         return distA.compareTo(distB);
       });
     }
@@ -288,7 +286,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
         enderecoFinal = 'Entrega CEP $cep';
       }
 
-      // Evita duplicidade
       bool jaExiste = _listaParadas.any((p) => 
         (enderecoFinal.isNotEmpty && p['endereco'].toString().toLowerCase().contains(enderecoFinal.toLowerCase())) ||
         (cep.isNotEmpty && p['bairro'].toString().contains(cep))
@@ -309,7 +306,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
         return;
       }
 
-      // Adiciona a nova parada direto na lista calculando uma coordenada próxima baseada na posição atual
       setState(() {
         _listaParadas.add({
           'endereco': enderecoFinal.isNotEmpty ? enderecoFinal : 'Nova Entrega',
@@ -322,7 +318,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
         });
       });
 
-      // Recalcula ordenando para que este novo endereço vire o foco imediato
       await _otimizarE_RecalcularRota();
 
       if (!mounted) return;
