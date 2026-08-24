@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "869500533148",
+    "project_id": "circuitoentregas-e83dc",
+    "storage_bucket": "circuitoentregas-e83dc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:869500533148:android:a1bf86aa3b0790d5953059",
+        "android_client_info": {
+          "package_name": "com.example.app_entregas"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "869500533148-rrh6p0hovp8uqkq7ripsocr0iueb2pv3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDy-4LoUufs1tquAcQ9zYL0anQzEd7Zk4A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "869500533148-rrh6p0hovp8uqkq7ripsocr0iueb2pv3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
