@@ -9,6 +9,8 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'url_launcher_stub.dart' if (dart.library.html) 'url_launcher_web.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
@@ -29,8 +31,159 @@ class AppEntregasProfissional extends StatelessWidget {
         colorSchemeSeed: const Color(0xFF1A73E8),
         scaffoldBackgroundColor: const Color(0xFFF1F4F9),
       ),
-      home: const TelaPrincipalNavegacao(),
+      home: const TelaVerificacaoAssinatura(),
     );
+  }
+}
+
+// TELA DE CONTROLE DE ASSINATURA E TESTE GRÁTIS DE 7 DIAS
+class TelaVerificacaoAssinatura extends StatefulWidget {
+  const TelaVerificacaoAssinatura({super.key});
+
+  @override
+  State<TelaVerificacaoAssinatura> createState() => _TelaVerificacaoAssinaturaState();
+}
+
+class _TelaVerificacaoAssinaturaState extends State<TelaVerificacaoAssinatura> {
+  bool _carregando = true;
+  bool _ativo = false;
+  int _diasRestantes = 7;
+
+  @override
+  void initState() {
+    super.initState();
+    _verificarStatusAssinatura();
+  }
+
+  Future<void> _verificarStatusAssinatura() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Verifica se o usuário já inseriu um código de ativação pago
+    bool assinaturaPaga = prefs.getBool('assinatura_paga') ?? false;
+    if (assinaturaPaga) {
+      setState(() {
+        _ativo = true;
+        _carregando = false;
+      });
+      return;
+    }
+
+    // Controle do Teste Grátis de 7 Dias
+    int? primeiraInstalacao = prefs.getInt('primeira_instalacao');
+    final agora = DateTime.now().millisecondsSinceEpoch;
+
+    if (primeiraInstalacao == null) {
+      await prefs.setInt('primeira_instalacao', agora);
+      primeiraInstalacao = agora;
+    }
+
+    final diferencaMilissegundos = agora - primeiraInstalacao;
+    final diasPassados = diferencaMilissegundos ~/ (1000 * 60 * 60 * 24);
+    int diasRestantesCalculado = 7 - diasPassados;
+
+    if (diasRestantesCalculado <= 0) {
+      setState(() {
+        _ativo = false;
+        _diasRestantes = 0;
+        _carregando = false;
+      });
+    } else {
+      setState(() {
+        _ativo = true;
+        _diasRestantes = diasRestantesCalculado;
+        _carregando = false;
+      });
+    }
+  }
+
+  void _ativarComCodigoTeste() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('assinatura_paga', true);
+    setState(() {
+      _ativo = true;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_carregando) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!_ativo) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF181F2C),
+        body: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Icon(Icons.lock_clock, size: 80, color: Colors.orangeAccent),
+              const SizedBox(height: 20),
+              const Text(
+                'Período de Teste Expirado',
+                style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Seu teste grátis de 7 dias acabou. Para continuar economizando tempo e combustível nas suas entregas, assine por apenas R$ 20/mês.',
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 30),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Column(
+                  children: [
+                    const Text('Chave Pix (E-mail / CPF):', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'seu-email@provedor.com', // Substitua pela sua chave Pix real
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        // Simulação de liberação rápida para testes
+                        _ativarComCodigoTeste();
+                      },
+                      icon: const Icon(Icons.check),
+                      label: const Text('Já fiz o Pix / Liberar Acesso'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              TextButton.icon(
+                onPressed: () async {
+                  final url = Uri.parse('https://wa.me/5511999999999?text=Paguei%20o%20Pix%20do%20app%20de%20entregas,%20quero%20meu%20acesso!');
+                  if (await canLaunchUrl(url)) {
+                    await launchUrl(url, mode: LaunchMode.externalApplication);
+                  }
+                },
+                icon: const Icon(Icons.chat, color: Colors.greenAccent),
+                label: const Text('Enviar Comprovante no WhatsApp', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return const TelaPrincipalNavegacao();
   }
 }
 
@@ -245,6 +398,74 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
       _modoNavegacao = false;
     });
     _mapController.move(_posicaoAtual, 15.5);
+  }
+
+  // NOVO RECURSO: ACHAR PACOTE NO PORTA-MALAS (Escaneia e acha qual parada é)
+  Future<void> _acharPacoteNoPortaMalas() async {
+    await Permission.camera.request();
+    try {
+      final XFile? foto = await _picker.pickImage(source: ImageSource.camera, imageQuality: 95);
+      if (foto == null) return;
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Procurando pacote na rota...')),
+      );
+
+      final inputImage = InputImage.fromFilePath(foto.path);
+      final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
+      String textoLido = recognizedText.text.toLowerCase();
+
+      // Procura na lista qual parada corresponde ao texto lido na etiqueta
+      int indiceEncontrado = -1;
+      for (int i = 0; i < _listaParadas.length; i++) {
+        String enderecoParada = _listaParadas[i]['endereco'].toString().toLowerCase();
+        // Verifica se trecho do endereço ou CEP bate com o texto escaneado
+        if (textoLido.contains(enderecoParada) || (_listaParadas[i]['bairro'] != null && textoLido.contains(_listaParadas[i]['bairro'].toString().toLowerCase()))) {
+          indiceEncontrado = i;
+          break;
+        }
+      }
+
+      if (!mounted) return;
+
+      if (indiceEncontrado != -1) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('📦 Pacote Encontrado!'),
+            content: Text('Este pacote pertence à Parada #${indiceEncontrado + 1}:\n\n${_listaParadas[indiceEncontrado]['endereco']}'),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  // Centraliza o mapa na parada encontrada
+                  _mapController.move(_listaParadas[indiceEncontrado]['latLng'], 17.0);
+                },
+                child: const Text('Ver no Mapa'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        // Fallback genérico caso não ache o nome exato mas leia o texto
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('🔎 Leitura Concluída'),
+            content: const Text('O pacote foi lido, mas verifique se ele está cadastrado nas paradas pendentes.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao conferir pacote: $e'), backgroundColor: Colors.red),
+      );
+    }
   }
 
   Future<void> _escanearEtiquetaOCR() async {
@@ -518,6 +739,8 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
             bottom: _modoNavegacao ? (_cardEntregaExpandido ? 240 : 90) : 340,
             child: Column(
               children: [
+                _botaoCircular(Icons.inventory_2, _acharPacoteNoPortaMalas, corIcone: Colors.orange), // Botão Achar Pacote
+                const SizedBox(height: 10),
                 _botaoCircular(Icons.directions, () {
                   _abrirNoGoogleMapsExterno(paradaAtiva['latLng'] as LatLng);
                 }, corIcone: Colors.blueAccent),
@@ -700,6 +923,13 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                             ),
                           ),
                           const SizedBox(width: 10),
+                          IconButton.filled(
+                            onPressed: _acharPacoteNoPortaMalas,
+                            icon: const Icon(Icons.inventory_2),
+                            style: IconButton.styleFrom(backgroundColor: Colors.orange),
+                            tooltip: 'Achar Pacote no Porta-Malas',
+                          ),
+                          const SizedBox(width: 6),
                           IconButton.filled(
                             onPressed: _escanearEtiquetaOCR,
                             icon: const Icon(Icons.camera_alt),
