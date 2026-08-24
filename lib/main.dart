@@ -5,8 +5,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:simple_barcode_scanner/simple_barcode_scanner.dart';
 
 void main() {
   runApp(const AppNavegadorTempoReal());
@@ -153,51 +153,26 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
   }
 
   void _abrirCameraScan() async {
-    final status = await Permission.camera.request();
+    await Permission.camera.request();
+
     if (!mounted) return;
 
-    if (status.isGranted) {
-      final resultado = await Navigator.push<String>(
-        context,
-        MaterialPageRoute(builder: (context) => const TelaLeitorScanner()),
-      );
-
-      if (resultado != null && resultado.isNotEmpty) {
-        _adicionarParadaEscaneada(resultado);
-      }
-    } else {
-      _mostrarDialogoManual();
-    }
-  }
-
-  void _mostrarDialogoManual() {
-    final textEdit = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Adicionar Pacote Manual'),
-        content: TextField(
-          controller: textEdit,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Código do pacote ou endereço',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: () {
-              if (textEdit.text.trim().isNotEmpty) {
-                Navigator.pop(ctx);
-                _adicionarParadaEscaneada(textEdit.text.trim());
-              }
-            },
-            child: const Text('Adicionar'),
-          ),
-        ],
+    final res = await SimpleBarcodeScanner.scanBarcode(
+      context,
+      barcodeAppBar: const BarcodeAppBar(
+        appBarTitle: 'Escanear Pacote',
+        centerTitle: false,
+        enableBackButton: true,
+        backButtonIcon: Icon(Icons.arrow_back_ios, color: Colors.white),
       ),
+      isShowFlashIcon: true,
+      delayMillis: 100,
+      cameraFace: CameraFace.back,
     );
+
+    if (res != null && res != '-1' && res.trim().isNotEmpty) {
+      _adicionarParadaEscaneada(res.trim());
+    }
   }
 
   void _adicionarParadaEscaneada(String codigoLido) {
@@ -211,7 +186,7 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
     _buscarRotaRealPelasVias();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Pacote $codigoLido adicionado à rota!'),
+        content: Text('Pacote $codigoLido adicionado com sucesso!'),
         backgroundColor: Colors.green,
       ),
     );
@@ -606,86 +581,6 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
                 ),
               ),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class TelaLeitorScanner extends StatefulWidget {
-  const TelaLeitorScanner({super.key});
-
-  @override
-  State<TelaLeitorScanner> createState() => _TelaLeitorScannerState();
-}
-
-class _TelaLeitorScannerState extends State<TelaLeitorScanner> {
-  late final MobileScannerController _controller;
-  bool _jaDetectou = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = MobileScannerController(
-      detectionSpeed: DetectionSpeed.noDuplicates,
-      facing: CameraFacing.back,
-      autoStart: true,
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text('Escanear Pacote'),
-        backgroundColor: Colors.teal,
-        foregroundColor: Colors.white,
-      ),
-      body: Stack(
-        alignment: Alignment.center,
-        children: [
-          MobileScanner(
-            controller: _controller,
-            onDetect: (capture) {
-              if (_jaDetectou) return;
-              final barcodes = capture.barcodes;
-              for (final barcode in barcodes) {
-                if (barcode.rawValue != null && barcode.rawValue!.isNotEmpty) {
-                  _jaDetectou = true;
-                  Navigator.pop(context, barcode.rawValue);
-                  break;
-                }
-              }
-            },
-          ),
-          Container(
-            width: 260,
-            height: 260,
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.greenAccent, width: 3),
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-          const Positioned(
-            bottom: 30,
-            child: Card(
-              color: Colors.black87,
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Text(
-                  'Aponte para o código de barras ou QR Code',
-                  style: TextStyle(color: Colors.white, fontSize: 13),
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );
