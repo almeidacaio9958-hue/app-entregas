@@ -9,7 +9,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
 
 void main() async {
@@ -95,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? 'Erro na autenticação.')),
+        SnackBar(content: Text(e.message ?? 'Erro de autenticação.')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -230,15 +229,13 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        distanceFilter: 5,
       ),
     ).listen((Position position) {
       if (mounted) {
         setState(() {
           _currentPosition = LatLng(position.latitude, position.longitude);
-          if (position.heading != 0.0) {
-            _currentHeading = position.heading;
-          }
+          if (position.heading != 0.0) _currentHeading = position.heading;
         });
       }
     });
@@ -262,15 +259,13 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
     return null;
   }
 
+  // Traça a rota exata nas ruas
   Future<void> _fetchStreetRoute(List<LatLng> points) async {
-    if (points.length < 2) {
-      if (_streetRoutePoints.isNotEmpty && mounted) {
-        setState(() => _streetRoutePoints = []);
-      }
-      return;
-    }
+    if (points.length < 2) return;
 
-    final key = points.map((p) => '${p.latitude.toStringAsFixed(4)},${p.longitude.toStringAsFixed(4)}').join(';');
+    final key = points
+        .map((p) => '${p.latitude.toStringAsFixed(3)},${p.longitude.toStringAsFixed(3)}')
+        .join(';');
     if (key == _lastRouteKey) return;
     _lastRouteKey = key;
 
@@ -281,22 +276,16 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
       final res = await http.get(url);
       if (res.statusCode == 200) {
         final data = json.decode(res.body);
-        final coordinates = data['routes'][0]['geometry']['coordinates'] as List;
+        final coordsList = data['routes'][0]['geometry']['coordinates'] as List;
         if (mounted) {
           setState(() {
-            _streetRoutePoints = coordinates
+            _streetRoutePoints = coordsList
                 .map((c) => LatLng(c[1] as double, c[0] as double))
                 .toList();
           });
         }
       }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _streetRoutePoints = List.from(points);
-        });
-      }
-    }
+    } catch (_) {}
   }
 
   double _calculateDistance(LatLng p1, LatLng p2) {
@@ -406,7 +395,7 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
       MaterialPageRoute(
         builder: (ctx) => Scaffold(
           appBar: AppBar(
-            title: const Text('Escanear Pacote / Etiqueta'),
+            title: const Text('Escanear Pacote'),
             backgroundColor: const Color(0xFF1A73E8),
             foregroundColor: Colors.white,
           ),
@@ -484,7 +473,7 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                     angle: (_currentHeading * (math.pi / 180)),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1A73E8).withValues(alpha: 0.2),
+                        color: const Color(0xFF1A73E8).withValues(alpha: 0.25),
                         shape: BoxShape.circle,
                       ),
                       child: const Center(
@@ -546,6 +535,7 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                     ],
                   ),
                 ),
+                // MAPA INTERNO COM AS RUAS E LINHA AZUL
                 Expanded(
                   flex: 5,
                   child: Container(
@@ -561,7 +551,7 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                             mapController: _mapController,
                             options: MapOptions(
                               initialCenter: centerMap,
-                              initialZoom: 14.5,
+                              initialZoom: 15.0,
                             ),
                             children: [
                               TileLayer(
@@ -574,7 +564,7 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                                     Polyline(
                                       points: _streetRoutePoints,
                                       color: const Color(0xFF1A73E8),
-                                      strokeWidth: 5.5,
+                                      strokeWidth: 6.0,
                                     ),
                                   ],
                                 ),
@@ -600,6 +590,7 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                     ),
                   ),
                 ),
+                // LISTA DE ENTREGAS
                 Expanded(
                   flex: 5,
                   child: Container(
@@ -623,10 +614,9 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (ctx) => GpsNavigation3DScreen(
+                                    builder: (ctx) => InAppNavigationScreen(
                                       target: target,
                                       address: d['address'] ?? '',
-                                      complement: d['complement'] ?? '',
                                       docId: nextStop.id,
                                     ),
                                   ),
@@ -634,8 +624,8 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                               },
                               icon: const Icon(Icons.navigation, color: Colors.white, size: 22),
                               label: const Text(
-                                'INICIAR NAVEGAÇÃO 3D',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, letterSpacing: 0.5),
+                                'INICIAR NAVEGAÇÃO INTERNA',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                               ),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF34A853),
@@ -652,7 +642,7 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              '${list.length} Paradas ordenadas',
+                              '${list.length} Paradas na rota',
                               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF202124)),
                             ),
                             IconButton(
@@ -713,15 +703,14 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             IconButton(
-                                              icon: const Icon(Icons.explore, color: Color(0xFF1A73E8)),
+                                              icon: const Icon(Icons.navigation, color: Color(0xFF1A73E8)),
                                               onPressed: () {
                                                 Navigator.push(
                                                   context,
                                                   MaterialPageRoute(
-                                                    builder: (ctx) => GpsNavigation3DScreen(
+                                                    builder: (ctx) => InAppNavigationScreen(
                                                       target: target,
                                                       address: data['address'] ?? '',
-                                                      complement: data['complement'] ?? '',
                                                       docId: docId,
                                                     ),
                                                   ),
@@ -760,36 +749,33 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
   }
 }
 
-class GpsNavigation3DScreen extends StatefulWidget {
+class InAppNavigationScreen extends StatefulWidget {
   final LatLng target;
   final String address;
-  final String complement;
   final String docId;
 
-  const GpsNavigation3DScreen({
+  const InAppNavigationScreen({
     super.key,
     required this.target,
     required this.address,
-    required this.complement,
     required this.docId,
   });
 
   @override
-  State<GpsNavigation3DScreen> createState() => _GpsNavigation3DScreenState();
+  State<InAppNavigationScreen> createState() => _InAppNavigationScreenState();
 }
 
-class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
+class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
   final MapController _navMapController = MapController();
   LatLng? _currentPosition;
   double _heading = 0.0;
-  double _speed = 0.0;
   List<LatLng> _routePoints = [];
   StreamSubscription<Position>? _stream;
 
   @override
   void initState() {
     super.initState();
-    _startLiveGps();
+    _startLiveNavigation();
   }
 
   @override
@@ -798,34 +784,28 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
     super.dispose();
   }
 
-  Future<void> _startLiveGps() async {
+  Future<void> _startLiveNavigation() async {
     final pos = await Geolocator.getCurrentPosition();
     if (mounted) {
       setState(() {
         _currentPosition = LatLng(pos.latitude, pos.longitude);
         _heading = pos.heading;
-        _speed = pos.speed * 3.6;
       });
       _fetchStreetRoute();
     }
 
-    _positionStreamLocal();
-  }
-
-  void _positionStreamLocal() {
     _stream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 2,
+        distanceFilter: 3,
       ),
     ).listen((Position position) {
       if (mounted) {
         setState(() {
           _currentPosition = LatLng(position.latitude, position.longitude);
           if (position.heading != 0.0) _heading = position.heading;
-          _speed = (position.speed * 3.6).clamp(0, 150);
         });
-        _navMapController.moveAndRotate(_currentPosition!, 17.5, -_heading);
+        _navMapController.move(_currentPosition!, 17.0);
       }
     });
   }
@@ -838,12 +818,10 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
       final res = await http.get(url);
       if (res.statusCode == 200) {
         final data = json.decode(res.body);
-        final coordinates = data['routes'][0]['geometry']['coordinates'] as List;
+        final coords = data['routes'][0]['geometry']['coordinates'] as List;
         if (mounted) {
           setState(() {
-            _routePoints = coordinates
-                .map((c) => LatLng(c[1] as double, c[0] as double))
-                .toList();
+            _routePoints = coords.map((c) => LatLng(c[1] as double, c[0] as double)).toList();
           });
         }
       }
@@ -868,55 +846,48 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.identity()
-              ..setEntry(3, 2, 0.0018)
-              ..rotateX(0.55),
-            child: FlutterMap(
-              mapController: _navMapController,
-              options: MapOptions(
-                initialCenter: center,
-                initialZoom: 17.5,
-                initialRotation: -_heading,
+          FlutterMap(
+            mapController: _navMapController,
+            options: MapOptions(
+              initialCenter: center,
+              initialZoom: 17.0,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+                userAgentPackageName: 'com.example.app_entregas',
               ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-                  userAgentPackageName: 'com.example.app_entregas',
-                ),
-                if (_routePoints.isNotEmpty)
-                  PolylineLayer(
-                    polylines: [
-                      Polyline(
-                        points: _routePoints,
-                        color: const Color(0xFF1A73E8),
-                        strokeWidth: 8.0,
-                      ),
-                    ],
-                  ),
-                MarkerLayer(
-                  markers: [
-                    if (_currentPosition != null)
-                      Marker(
-                        point: _currentPosition!,
-                        width: 50,
-                        height: 50,
-                        child: Transform.rotate(
-                          angle: (_heading * (math.pi / 180)),
-                          child: const Icon(Icons.navigation, color: Color(0xFF1A73E8), size: 44),
-                        ),
-                      ),
-                    Marker(
-                      point: widget.target,
-                      width: 44,
-                      height: 44,
-                      child: const Icon(Icons.location_on, color: Color(0xFFEA4335), size: 44),
+              if (_routePoints.isNotEmpty)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _routePoints,
+                      color: const Color(0xFF1A73E8),
+                      strokeWidth: 7.0,
                     ),
                   ],
                 ),
-              ],
-            ),
+              MarkerLayer(
+                markers: [
+                  if (_currentPosition != null)
+                    Marker(
+                      point: _currentPosition!,
+                      width: 48,
+                      height: 48,
+                      child: Transform.rotate(
+                        angle: (_heading * (math.pi / 180)),
+                        child: const Icon(Icons.navigation, color: Color(0xFF1A73E8), size: 40),
+                      ),
+                    ),
+                  Marker(
+                    point: widget.target,
+                    width: 44,
+                    height: 44,
+                    child: const Icon(Icons.location_on, color: Color(0xFFEA4335), size: 44),
+                  ),
+                ],
+              ),
+            ],
           ),
           SafeArea(
             child: Padding(
@@ -926,12 +897,12 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
                 decoration: BoxDecoration(
                   color: const Color(0xFF1A73E8),
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 10, offset: Offset(0, 4))],
+                  boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 3))],
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.arrow_upward, color: Colors.white, size: 36),
-                    const SizedBox(width: 14),
+                    const Icon(Icons.directions, color: Colors.white, size: 36),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -939,11 +910,10 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
                         children: [
                           Text(
                             distanceMeters < 1000
-                                ? 'Em ${distanceMeters.toStringAsFixed(0)} m'
-                                : 'Em ${(distanceMeters / 1000).toStringAsFixed(1)} km',
-                            style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                                ? 'Distância: ${distanceMeters.toStringAsFixed(0)} m'
+                                : 'Distância: ${(distanceMeters / 1000).toStringAsFixed(1)} km',
+                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                           ),
-                          const SizedBox(height: 2),
                           Text(
                             widget.address,
                             maxLines: 1,
@@ -965,48 +935,27 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
           Positioned(
             left: 16,
             right: 16,
-            bottom: 20,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.black87,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '${_speed.toStringAsFixed(0)} km/h',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      await FirebaseFirestore.instance
-                          .collection('deliveries')
-                          .doc(widget.docId)
-                          .update({'status': 'concluido'});
-                      if (mounted) Navigator.pop(context);
-                    },
-                    icon: const Icon(Icons.check_circle, color: Colors.white, size: 24),
-                    label: const Text(
-                      'CONCLUIR ESTA ENTREGA',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF34A853),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      elevation: 6,
-                    ),
-                  ),
-                ),
-              ],
+            bottom: 24,
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                await FirebaseFirestore.instance
+                    .collection('deliveries')
+                    .doc(widget.docId)
+                    .update({'status': 'concluido'});
+                if (mounted) Navigator.pop(context);
+              },
+              icon: const Icon(Icons.check_circle, color: Colors.white, size: 22),
+              label: const Text(
+                'CONCLUIR ENTREGA',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF34A853),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 5,
+              ),
             ),
           ),
         ],
