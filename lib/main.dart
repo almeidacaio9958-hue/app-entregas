@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 void main() {
   runApp(const AppNavegadorTempoReal());
@@ -18,7 +19,7 @@ class AppNavegadorTempoReal extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'GPS Navegação Entregas',
-      theme: ThemeData(useMaterial3: true, primarySwatch: Colors.teal),
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.teal),
       home: const TelaGPSTempoReal(),
     );
   }
@@ -35,14 +36,14 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
   final MapController _mapController = MapController();
 
   LatLng _posicaoVeiculo = const LatLng(-23.328000, -46.732000);
+  StreamSubscription<Position>? _streamPosicao;
+  double _anguloCarro = 0.0;
+
   bool _emNavegacao = false;
   bool _emParadaEntrega = false;
   bool _carregandoRota = false;
-  Timer? _timerMovimento;
-  double _anguloCarro = 0.0;
 
   List<LatLng> _pontosDaViaReal = [];
-  int _indicePasso = 0;
   String _distanciaTexto = 'Calculando...';
   String _tempoTexto = '-- min';
 
@@ -62,13 +63,51 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
   @override
   void initState() {
     super.initState();
+    _iniciarMonitoramentoGPSReal();
     _buscarRotaRealPelasVias();
   }
 
   @override
   void dispose() {
-    _timerMovimento?.cancel();
+    _streamPosicao?.cancel();
     super.dispose();
+  }
+
+  Future<void> _iniciarMonitoramentoGPSReal() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+    if (permission == LocationPermission.deniedForever) return;
+
+    final posInicial = await Geolocator.getCurrentPosition();
+    setState(() {
+      _posicaoVeiculo = LatLng(posInicial.latitude, posInicial.longitude);
+    });
+    _mapController.move(_posicaoVeiculo, 16.0);
+
+    const locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 5,
+    );
+
+    _streamPosicao = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position pos) {
+      final novaPos = LatLng(pos.latitude, pos.longitude);
+      setState(() {
+        _posicaoVeiculo = novaPos;
+        if (pos.heading != 0) {
+          _anguloCarro = pos.heading * (3.141592653589793 / 180.0);
+        }
+      });
+
+      if (_emNavegacao) {
+        _mapController.move(novaPos, 17.5);
+      }
+    });
   }
 
   Future<void> _buscarRotaRealPelasVias() async {
@@ -100,63 +139,64 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
 
         setState(() {
           _pontosDaViaReal = rotaExtraida;
-          _indicePasso = 0;
           _distanciaTexto = '${(distMetros / 1000).toStringAsFixed(1)} km';
           _tempoTexto = '${(duracaoSegundos / 60).round()} min';
           _carregandoRota = false;
         });
       }
-    } catch (e) {
+    } catch (_) {
       setState(() => _carregandoRota = false);
     }
   }
 
-  void _iniciarNavegacao() async {
-    if (_pontosDaViaReal.isEmpty) {
-      await _buscarRotaRealPelasVias();
-    }
+  void _abrirCameraScan() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          appBar: AppBar(title: const Text('Escanear Pacote')),
+          body: MobileScanner(
+            onDetect: (capture) {
+              final barcodes = capture.barcodes;
+              if (barcodes.isNotEmpty) {
+                final valor = barcodes.first.rawValue ?? 'Pacote #${_paradas.length + 1}';
+                Navigator.pop(context);
+                _adicionarParadaEscaneada(valor);
+              }
+            },
+          ),
+        ),
+      ),
+    );
+  }
 
+  void _adicionarParadaEscaneada(String codigoLido) {
+    setState(() {
+      _paradas.add({
+        'endereco': 'Entrega: $codigoLido',
+        'latLng': LatLng(_posicaoVeiculo.latitude + 0.005, _posicaoVeiculo.longitude + 0.005),
+        'entregue': false,
+      });
+    });
+    _buscarRotaRealPelasVias();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Pacote escaneado: $codigoLido'), backgroundColor: Colors.green),
+    );
+  }
+
+  void _marcarComoEntregue(int index) {
+    setState(() {
+      _paradas[index]['entregue'] = !_paradas[index]['entregue'];
+    });
+    _buscarRotaRealPelasVias();
+  }
+
+  void _iniciarNavegacao() {
     setState(() {
       _emNavegacao = true;
       _emParadaEntrega = false;
-      _indicePasso = 0;
     });
-
     _mapController.move(_posicaoVeiculo, 17.5);
-    _rodarAutomaticamenteNaVia();
-  }
-
-  void _rodarAutomaticamenteNaVia() {
-    _timerMovimento?.cancel();
-
-    _timerMovimento = Timer.periodic(const Duration(milliseconds: 250), (timer) {
-      if (_indicePasso >= _pontosDaViaReal.length - 1) {
-        timer.cancel();
-        _acionarParadaEntrega();
-        return;
-      }
-
-      _indicePasso++;
-      LatLng proximo = _pontosDaViaReal[_indicePasso];
-
-      _anguloCarro = atan2(
-        proximo.longitude - _posicaoVeiculo.longitude,
-        proximo.latitude - _posicaoVeiculo.latitude,
-      );
-
-      setState(() {
-        _posicaoVeiculo = proximo;
-      });
-
-      _mapController.move(_posicaoVeiculo, 17.5);
-    });
-  }
-
-  void _acionarParadaEntrega() {
-    _timerMovimento?.cancel();
-    setState(() {
-      _emParadaEntrega = true;
-    });
   }
 
   void _continuarProximaEntrega() {
@@ -170,42 +210,14 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
 
     final novasPendentes = _paradas.where((p) => !p['entregue']).toList();
     if (novasPendentes.isEmpty) {
-      setState(() {
-        _emNavegacao = false;
-      });
+      setState(() => _emNavegacao = false);
       _mapController.move(_posicaoVeiculo, 14.0);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Todas as entregas foram concluídas com sucesso!'), backgroundColor: Colors.green),
+        const SnackBar(content: Text('Todas as entregas concluídas!'), backgroundColor: Colors.green),
       );
     } else {
-      _iniciarNavegacao();
+      _buscarRotaRealPelasVias();
     }
-  }
-
-  void _escanearPacote() {
-    final random = Random();
-    double latOffset = (random.nextDouble() - 0.5) * 0.02;
-    double lngOffset = (random.nextDouble() - 0.5) * 0.02;
-
-    int total = _paradas.length + 1;
-    LatLng novaPosicao = LatLng(_posicaoVeiculo.latitude + latOffset, _posicaoVeiculo.longitude + lngOffset);
-
-    setState(() {
-      _paradas.add({
-        'endereco': 'Pacote #$total - Rua Nova, ${random.nextInt(800) + 10}',
-        'latLng': novaPosicao,
-        'entregue': false,
-      });
-    });
-
-    _buscarRotaRealPelasVias();
-  }
-
-  void _marcarComoEntregue(int index) {
-    setState(() {
-      _paradas[index]['entregue'] = !_paradas[index]['entregue'];
-    });
-    _buscarRotaRealPelasVias();
   }
 
   @override
@@ -238,7 +250,7 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
                   BoxShadow(blurRadius: 6, color: Colors.black38, offset: Offset(0, 2))
                 ],
               ),
-              child: const Icon(Icons.arrow_upward, color: Colors.white, size: 12),
+              child: const Icon(Icons.navigation, color: Colors.white, size: 12),
             ),
           ],
         ),
@@ -294,7 +306,7 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
             mapController: _mapController,
             options: MapOptions(
               initialCenter: _posicaoVeiculo,
-              initialZoom: 14.0,
+              initialZoom: 15.0,
             ),
             children: [
               TileLayer(
@@ -399,12 +411,11 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
                         IconButton(
                           icon: const Icon(Icons.close, size: 28, color: Colors.black87),
                           onPressed: () {
-                            _timerMovimento?.cancel();
                             setState(() {
                               _emNavegacao = false;
                               _emParadaEntrega = false;
                             });
-                            _mapController.move(_posicaoVeiculo, 14.0);
+                            _mapController.move(_posicaoVeiculo, 15.0);
                           },
                         ),
                         Expanded(
@@ -435,7 +446,7 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
                     const SizedBox(height: 8),
                     if (!_emParadaEntrega)
                       ElevatedButton.icon(
-                        onPressed: _acionarParadaEntrega,
+                        onPressed: () => setState(() => _emParadaEntrega = true),
                         icon: const Icon(Icons.pause_circle_filled, color: Colors.white),
                         label: const Text(
                           'Parada para a Entrega',
@@ -492,7 +503,7 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
                             ),
                           ),
                           ElevatedButton.icon(
-                            onPressed: _escanearPacote,
+                            onPressed: _abrirCameraScan,
                             icon: const Icon(Icons.camera_alt, size: 15),
                             label: const Text('Scan', style: TextStyle(fontSize: 12)),
                             style: ElevatedButton.styleFrom(
