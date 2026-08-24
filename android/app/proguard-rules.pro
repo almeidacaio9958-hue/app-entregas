@@ -1,0 +1,3 @@
+-dontwarn com.google.mlkit.vision.text.**
+-keep class com.google.mlkit.vision.text.** { *; }
+-dontwarn io.flutter.plugin.common.**
