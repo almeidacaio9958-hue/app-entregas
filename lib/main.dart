@@ -24,7 +24,7 @@ class CircuitoEntregasApp extends StatelessWidget {
       title: 'Otimize',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3F51B5)),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1E3A8A)),
         useMaterial3: true,
       ),
       home: const AuthWrapper(),
@@ -92,7 +92,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? 'Ocorreu um erro.')),
+        SnackBar(content: Text(e.message ?? 'Ocorreu um erro no acesso.')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -105,41 +105,48 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: const Color(0xFFC5D9F8),
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(28.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              const Icon(Icons.route, size: 70, color: Color(0xFF0F2537)),
+              const SizedBox(height: 8),
               const Text(
                 'Otimize',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Color(0xFF0F2537)),
+                style: TextStyle(
+                  fontSize: 38,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -0.5,
+                  color: Color(0xFF0F2537),
+                ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'E-mail',
                   filled: true,
                   fillColor: Colors.white,
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: const Icon(Icons.email_outlined),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               TextField(
                 controller: _passwordController,
                 obscureText: true,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Senha',
                   filled: true,
                   fillColor: Colors.white,
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: const Icon(Icons.lock_outline),
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : ElevatedButton(
@@ -147,15 +154,19 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF0F2537),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      child: Text(_isLogin ? 'Entrar' : 'Cadastrar'),
+                      child: Text(
+                        _isLogin ? 'Entrar no Sistema' : 'Cadastrar Motorista',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
                     ),
               TextButton(
                 onPressed: () => setState(() => _isLogin = !_isLogin),
                 child: Text(
-                  _isLogin ? 'Não tem conta? Cadastre-se' : 'Já tem conta? Faça login',
-                  style: const TextStyle(color: Color(0xFF0F2537)),
+                  _isLogin ? 'Novo por aqui? Criar conta' : 'Já possui conta? Acessar',
+                  style: const TextStyle(color: Color(0xFF0F2537), fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -176,6 +187,7 @@ class OtimizeScreen extends StatefulWidget {
 class _OtimizeScreenState extends State<OtimizeScreen> {
   LatLng? _currentPosition;
   final _user = FirebaseAuth.instance.currentUser;
+  final MapController _mapController = MapController();
 
   @override
   void initState() {
@@ -184,18 +196,14 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
   }
 
   Future<void> _determinePosition() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
 
-    permission = await Geolocator.checkPermission();
+    LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return;
     }
-
     if (permission == LocationPermission.deniedForever) return;
 
     final position = await Geolocator.getCurrentPosition();
@@ -203,15 +211,16 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
       setState(() {
         _currentPosition = LatLng(position.latitude, position.longitude);
       });
+      _mapController.move(_currentPosition!, 14.0);
     }
   }
 
   double _calculateDistance(LatLng p1, LatLng p2) {
-    var p = 0.017453292519943295;
-    var c = math.cos;
-    var a = 0.5 - c((p2.latitude - p1.latitude) * p) / 2 +
-        c(p1.latitude * p) * c(p2.latitude * p) *
-            (1 - c((p2.longitude - p1.longitude) * p)) / 2;
+    const p = 0.017453292519943295;
+    final c = math.cos;
+    final a = 0.5 -
+        c((p2.latitude - p1.latitude) * p) / 2 +
+        c(p1.latitude * p) * c(p2.latitude * p) * (1 - c((p2.longitude - p1.longitude) * p)) / 2;
     return 12742 * math.asin(math.sqrt(a));
   }
 
@@ -245,14 +254,14 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Adicionar Nova Parada',
+              'Adicionar Nova Entrega',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F2537)),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: addressCtrl,
               decoration: const InputDecoration(
-                labelText: 'Endereço / Pacote lido',
+                labelText: 'Endereço completo / Código escaneado',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -260,7 +269,7 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
             TextField(
               controller: complementCtrl,
               decoration: const InputDecoration(
-                labelText: 'Complemento / Nome do cliente',
+                labelText: 'Destinatário / Observação (opcional)',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -272,14 +281,15 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
 
                 final baseLat = _currentPosition?.latitude ?? -23.5505;
                 final baseLng = _currentPosition?.longitude ?? -46.6333;
+                final offset = (DateTime.now().millisecond % 40) * 0.0012;
 
                 await FirebaseFirestore.instance.collection('deliveries').add({
                   'userId': _user?.uid,
                   'address': addr,
                   'complement': complementCtrl.text.trim(),
                   'status': 'pendente',
-                  'lat': baseLat + (DateTime.now().millisecond % 50) * 0.001,
-                  'lng': baseLng + (DateTime.now().millisecond % 50) * 0.001,
+                  'lat': baseLat + offset,
+                  'lng': baseLng + offset,
                   'createdAt': FieldValue.serverTimestamp(),
                 });
 
@@ -289,8 +299,9 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                 backgroundColor: const Color(0xFF0F2537),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
-              child: const Text('Salvar na Rota'),
+              child: const Text('Confirmar Parada'),
             ),
           ],
         ),
@@ -304,14 +315,13 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
       MaterialPageRoute(
         builder: (ctx) => Scaffold(
           appBar: AppBar(
-            title: const Text('Escanear Código do Pacote'),
+            title: const Text('Escanear Pacote'),
             backgroundColor: const Color(0xFF0F2537),
             foregroundColor: Colors.white,
           ),
           body: MobileScanner(
             onDetect: (capture) {
-              final barcodes = capture.barcodes;
-              for (final barcode in barcodes) {
+              for (final barcode in capture.barcodes) {
                 final code = barcode.rawValue;
                 if (code != null && code.isNotEmpty) {
                   Navigator.pop(ctx);
@@ -347,7 +357,7 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                   ),
                   const Text(
                     'Otimize',
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF0F2537)),
+                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF0F2537)),
                   ),
                   IconButton(
                     icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF0F2537)),
@@ -365,153 +375,212 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                 ),
                 child: ClipRRect(
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-                  child: Column(
-                    children: [
-                      Expanded(
-                        flex: 5,
-                        child: FlutterMap(
-                          options: MapOptions(
-                            initialCenter: centerMap,
-                            initialZoom: 14.0,
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('deliveries')
+                        .where('userId', isEqualTo: _user?.uid)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      final docs = snapshot.data?.docs ?? [];
+                      final list = List.from(docs);
+
+                      if (_currentPosition != null) {
+                        list.sort((a, b) {
+                          final dataA = a.data() as Map<String, dynamic>;
+                          final dataB = b.data() as Map<String, dynamic>;
+                          final posA = LatLng(dataA['lat'] ?? 0.0, dataA['lng'] ?? 0.0);
+                          final posB = LatLng(dataB['lat'] ?? 0.0, dataB['lng'] ?? 0.0);
+                          return _calculateDistance(_currentPosition!, posA)
+                              .compareTo(_calculateDistance(_currentPosition!, posB));
+                        });
+                      }
+
+                      List<LatLng> routePoints = [];
+                      if (_currentPosition != null) routePoints.add(_currentPosition!);
+
+                      List<Marker> markers = [];
+                      if (_currentPosition != null) {
+                        markers.add(
+                          Marker(
+                            point: _currentPosition!,
+                            width: 38,
+                            height: 38,
+                            child: const Icon(Icons.navigation, color: Colors.blue, size: 32),
                           ),
-                          children: [
-                            TileLayer(
-                              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                              userAgentPackageName: 'com.example.app_entregas',
+                        );
+                      }
+
+                      for (int i = 0; i < list.length; i++) {
+                        final data = list[i].data() as Map<String, dynamic>;
+                        final point = LatLng(data['lat'] ?? 0.0, data['lng'] ?? 0.0);
+                        routePoints.add(point);
+                        final isDone = data['status'] == 'concluido';
+
+                        markers.add(
+                          Marker(
+                            point: point,
+                            width: 32,
+                            height: 32,
+                            child: CircleAvatar(
+                              backgroundColor: isDone ? Colors.green : const Color(0xFF0F2537),
+                              child: Text(
+                                '${i + 1}',
+                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
                             ),
-                            MarkerLayer(
-                              markers: [
-                                if (_currentPosition != null)
-                                  Marker(
-                                    point: _currentPosition!,
-                                    width: 40,
-                                    height: 40,
-                                    child: const Icon(Icons.my_location, color: Colors.blue, size: 36),
+                          ),
+                        );
+                      }
+
+                      return Column(
+                        children: [
+                          // MAPA COM ROTA TRAÇADA
+                          Expanded(
+                            flex: 5,
+                            child: FlutterMap(
+                              mapController: _mapController,
+                              options: MapOptions(
+                                initialCenter: centerMap,
+                                initialZoom: 14.0,
+                              ),
+                              children: [
+                                TileLayer(
+                                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                  userAgentPackageName: 'com.example.app_entregas',
+                                ),
+                                if (routePoints.length > 1)
+                                  PolylineLayer(
+                                    polylines: [
+                                      Polyline(
+                                        points: routePoints,
+                                        color: const Color(0xFF1E3A8A),
+                                        strokeWidth: 4.0,
+                                      ),
+                                    ],
                                   ),
+                                MarkerLayer(markers: markers),
                               ],
                             ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        flex: 5,
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                            boxShadow: [
-                              BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -4)),
-                            ],
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    'Circuito Inteligente',
-                                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F2537)),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.add_circle, color: Color(0xFF0F2537), size: 32),
-                                    onPressed: () => _showAddModal(),
-                                  ),
+
+                          // PAINEL DE CONTROLE DAS ENTREGAS
+                          Expanded(
+                            flex: 5,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                                boxShadow: [
+                                  BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -4)),
                                 ],
                               ),
-                              const Divider(height: 10),
-                              Expanded(
-                                child: StreamBuilder<QuerySnapshot>(
-                                  stream: FirebaseFirestore.instance
-                                      .collection('deliveries')
-                                      .where('userId', isEqualTo: _user?.uid)
-                                      .snapshots(),
-                                  builder: (context, snapshot) {
-                                    if (snapshot.connectionState == ConnectionState.waiting) {
-                                      return const Center(child: CircularProgressIndicator());
-                                    }
-
-                                    final docs = snapshot.data?.docs ?? [];
-                                    if (docs.isEmpty) {
-                                      return const Center(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
                                         child: Text(
-                                          'Nenhum pacote na rota.\nEscaneie um código ou toque em +',
+                                          '${list.length} Paradas • Circuito Otimizado',
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF0F2537),
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.add_circle, color: Color(0xFF0F2537), size: 30),
+                                        onPressed: () => _showAddModal(),
+                                      ),
+                                    ],
+                                  ),
+                                  const Divider(height: 8),
+                                  if (list.isEmpty)
+                                    const Expanded(
+                                      child: Center(
+                                        child: Text(
+                                          'Nenhuma entrega na rota.\nEscaneie uma encomenda para iniciar.',
                                           textAlign: TextAlign.center,
                                           style: TextStyle(color: Colors.grey),
                                         ),
-                                      );
-                                    }
+                                      ),
+                                    )
+                                  else
+                                    Expanded(
+                                      child: ListView.builder(
+                                        itemCount: list.length,
+                                        itemBuilder: (context, index) {
+                                          final data = list[index].data() as Map<String, dynamic>;
+                                          final docId = list[index].id;
+                                          final isDone = data['status'] == 'concluido';
 
-                                    final list = List.from(docs);
-                                    if (_currentPosition != null) {
-                                      list.sort((a, b) {
-                                        final dataA = a.data() as Map<String, dynamic>;
-                                        final dataB = b.data() as Map<String, dynamic>;
-                                        final posA = LatLng(dataA['lat'] ?? 0.0, dataA['lng'] ?? 0.0);
-                                        final posB = LatLng(dataB['lat'] ?? 0.0, dataB['lng'] ?? 0.0);
-                                        final distA = _calculateDistance(_currentPosition!, posA);
-                                        final distB = _calculateDistance(_currentPosition!, posB);
-                                        return distA.compareTo(distB);
-                                      });
-                                    }
-
-                                    return ListView.builder(
-                                      itemCount: list.length,
-                                      itemBuilder: (context, index) {
-                                        final data = list[index].data() as Map<String, dynamic>;
-                                        final docId = list[index].id;
-                                        final isDone = data['status'] == 'concluido';
-
-                                        return ListTile(
-                                          contentPadding: EdgeInsets.zero,
-                                          leading: CircleAvatar(
-                                            backgroundColor: isDone ? Colors.green : const Color(0xFF0F2537),
-                                            child: Text(
-                                              '${index + 1}',
-                                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                          return Dismissible(
+                                            key: Key(docId),
+                                            direction: DismissDirection.endToStart,
+                                            background: Container(
+                                              alignment: Alignment.centerRight,
+                                              padding: const EdgeInsets.only(right: 20),
+                                              color: Colors.redAccent,
+                                              child: const Icon(Icons.delete, color: Colors.white),
                                             ),
-                                          ),
-                                          title: Text(
-                                            data['address'] ?? '',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              decoration: isDone ? TextDecoration.lineThrough : null,
-                                            ),
-                                          ),
-                                          subtitle: Text(data['complement'] ?? (isDone ? 'Concluído' : 'Pendente')),
-                                          trailing: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              IconButton(
-                                                icon: const Icon(Icons.navigation, color: Colors.blue),
-                                                onPressed: () => _openExternalMap(data['address']),
-                                              ),
-                                              IconButton(
-                                                icon: Icon(
-                                                  isDone ? Icons.check_circle : Icons.radio_button_unchecked,
-                                                  color: isDone ? Colors.green : Colors.grey,
+                                            onDismissed: (_) {
+                                              FirebaseFirestore.instance.collection('deliveries').doc(docId).delete();
+                                            },
+                                            child: ListTile(
+                                              contentPadding: EdgeInsets.zero,
+                                              leading: CircleAvatar(
+                                                backgroundColor: isDone ? Colors.green : const Color(0xFF0F2537),
+                                                child: Text(
+                                                  '${index + 1}',
+                                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                                                 ),
-                                                onPressed: () {
-                                                  FirebaseFirestore.instance
-                                                      .collection('deliveries')
-                                                      .doc(docId)
-                                                      .update({'status': isDone ? 'pendente' : 'concluido'});
-                                                },
                                               ),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                    );
-                                  },
-                                ),
+                                              title: Text(
+                                                data['address'] ?? '',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  decoration: isDone ? TextDecoration.lineThrough : null,
+                                                ),
+                                              ),
+                                              subtitle: Text(
+                                                data['complement'] != null && data['complement'].toString().isNotEmpty
+                                                    ? data['complement']
+                                                    : (isDone ? 'Concluído' : 'Pendente'),
+                                              ),
+                                              trailing: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  IconButton(
+                                                    icon: const Icon(Icons.navigation, color: Colors.blue),
+                                                    onPressed: () => _openExternalMap(data['address']),
+                                                  ),
+                                                  IconButton(
+                                                    icon: Icon(
+                                                      isDone ? Icons.check_circle : Icons.radio_button_unchecked,
+                                                      color: isDone ? Colors.green : Colors.grey,
+                                                    ),
+                                                    onPressed: () {
+                                                      FirebaseFirestore.instance.collection('deliveries').doc(docId).update({
+                                                        'status': isDone ? 'pendente' : 'concluido',
+                                                      });
+                                                    },
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
-                        ),
-                      ),
-                    ],
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
