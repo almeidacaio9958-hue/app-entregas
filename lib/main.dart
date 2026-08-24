@@ -3,10 +3,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:simple_barcode_scanner/simple_barcode_scanner.dart';
 
 void main() {
   runApp(const AppNavegadorTempoReal());
@@ -35,6 +36,8 @@ class TelaGPSTempoReal extends StatefulWidget {
 
 class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
   final MapController _mapController = MapController();
+  final ImagePicker _picker = ImagePicker();
+  final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
   LatLng _posicaoVeiculo = const LatLng(-23.328000, -46.732000);
   StreamSubscription<Position>? _streamPosicao;
@@ -71,6 +74,7 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
   @override
   void dispose() {
     _streamPosicao?.cancel();
+    _textRecognizer.close();
     super.dispose();
   }
 
@@ -152,44 +156,106 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
     }
   }
 
-  void _abrirCameraScan() async {
+  Future<void> _escanearEtiquetaComCamera() async {
     await Permission.camera.request();
 
-    if (!mounted) return;
+    try {
+      final XFile? foto = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 90,
+      );
 
-    final res = await SimpleBarcodeScanner.scanBarcode(
-      context,
-      barcodeAppBar: const BarcodeAppBar(
-        appBarTitle: 'Escanear Pacote',
-        centerTitle: false,
-        enableBackButton: true,
-        backButtonIcon: Icon(Icons.arrow_back_ios, color: Colors.white),
-      ),
-      isShowFlashIcon: true,
-      delayMillis: 100,
-      cameraFace: CameraFace.back,
-    );
+      if (foto == null) return;
 
-    if (res != null && res != '-1' && res.trim().isNotEmpty) {
-      _adicionarParadaEscaneada(res.trim());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Identificando endereço da etiqueta...')),
+      );
+
+      final inputImage = InputImage.fromFilePath(foto.path);
+      final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
+
+      String textoCompleto = recognizedText.text;
+
+      // 1. Extrair CEP (formato 00000-000 ou 00000000)
+      final cepMatch = RegExp(r'\b\d{5}-?\d{3}\b').firstMatch(textoCompleto);
+      String cepEncontrado = cepMatch != null ? cepMatch.group(0)!.replaceAll('-', '') : '';
+
+      // 2. Extrair linha de Endereço (Rua, Av, etc)
+      String enderecoEncontrado = '';
+      final linhas = textoCompleto.split('\n');
+      for (String linha in linhas) {
+        final l = linha.toLowerCase();
+        if (l.contains('rua') || l.contains('av') || l.contains('avenida') || l.contains('travessa') || l.contains('endereço:')) {
+          enderecoEncontrado = linha.replaceAll(RegExp(r'endereço:?', caseSensitive: false), '').trim();
+          break;
+        }
+      }
+
+      // 3. Geocodificar para pegar a Latitude e Longitude real
+      LatLng? coordenadaDestino;
+      String enderecoFinal = enderecoEncontrado.isNotEmpty ? enderecoEncontrado : 'Entrega CEP $cepEncontrado';
+
+      if (enderecoEncontrado.isNotEmpty) {
+        coordenadaDestino = await _obterLatLngPorEndereco('$enderecoEncontrado, Franco da Rocha - SP');
+      }
+
+      if (coordenadaDestino == null && cepEncontrado.isNotEmpty) {
+        coordenadaDestino = await _obterLatLngPorCep(cepEncontrado);
+      }
+
+      coordenadaDestino ??= LatLng(_posicaoVeiculo.latitude + 0.005, _posicaoVeiculo.longitude + 0.005);
+
+      setState(() {
+        _paradas.add({
+          'endereco': enderecoFinal,
+          'latLng': coordenadaDestino,
+          'entregue': false,
+        });
+      });
+
+      _buscarRotaRealPelasVias();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Endereço adicionado: $enderecoFinal'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao ler etiqueta: $e'), backgroundColor: Colors.red),
+      );
     }
   }
 
-  void _adicionarParadaEscaneada(String codigoLido) {
-    setState(() {
-      _paradas.add({
-        'endereco': 'Entrega #$codigoLido',
-        'latLng': LatLng(_posicaoVeiculo.latitude + 0.003, _posicaoVeiculo.longitude + 0.003),
-        'entregue': false,
-      });
-    });
-    _buscarRotaRealPelasVias();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Pacote $codigoLido adicionado com sucesso!'),
-        backgroundColor: Colors.green,
-      ),
-    );
+  Future<LatLng?> _obterLatLngPorEndereco(String query) async {
+    try {
+      final url = Uri.parse('https://nominatim.openstreetmap.org/search?q=${Uri.encodeComponent(query)}&format=json&limit=1');
+      final res = await http.get(url, headers: {'User-Agent': 'AppEntregasGPS/1.0'});
+      if (res.statusCode == 200) {
+        final list = jsonDecode(res.body) as List;
+        if (list.isNotEmpty) {
+          return LatLng(double.parse(list[0]['lat']), double.parse(list[0]['lon']));
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<LatLng?> _obterLatLngPorCep(String cep) async {
+    try {
+      final urlViaCep = Uri.parse('https://viacep.com.br/ws/$cep/json/');
+      final resViaCep = await http.get(urlViaCep);
+      if (resViaCep.statusCode == 200) {
+        final data = jsonDecode(resViaCep.body);
+        final logradouro = data['logradouro'] ?? '';
+        final localidade = data['localidade'] ?? '';
+        final uf = data['uf'] ?? '';
+        return await _obterLatLngPorEndereco('$logradouro, $localidade - $uf');
+      }
+    } catch (_) {}
+    return null;
   }
 
   void _marcarComoEntregue(int index) {
@@ -511,13 +577,13 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
                             ),
                           ),
                           ElevatedButton.icon(
-                            onPressed: _abrirCameraScan,
+                            onPressed: _escanearEtiquetaComCamera,
                             icon: const Icon(Icons.camera_alt, size: 15),
-                            label: const Text('Scan', style: TextStyle(fontSize: 12)),
+                            label: const Text('Escanear Etiqueta', style: TextStyle(fontSize: 12)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF1A73E8),
                               foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               minimumSize: const Size(0, 34),
                             ),
                           ),
