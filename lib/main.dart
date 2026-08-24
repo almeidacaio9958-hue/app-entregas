@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,7 +8,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'math.dart' as math;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -101,7 +101,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // ignore: deprecated_member_use
     return Scaffold(
       backgroundColor: const Color(0xFFC5D9F8),
       body: Center(
@@ -271,7 +270,6 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                 final addr = addressCtrl.text.trim();
                 if (addr.isEmpty) return;
 
-                // Coordenadas simuladas para o endereço inserido próximas ao usuário
                 final baseLat = _currentPosition?.latitude ?? -23.5505;
                 final baseLng = _currentPosition?.longitude ?? -46.6333;
 
@@ -369,7 +367,6 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
                   child: Column(
                     children: [
-                      // MAPA
                       Expanded(
                         flex: 5,
                         child: FlutterMap(
@@ -396,7 +393,6 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                           ],
                         ),
                       ),
-                      // PAINEL DE PARADAS ORDENADAS POR PROXIMIDADE
                       Expanded(
                         flex: 5,
                         child: Container(
@@ -412,10 +408,10 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.between,
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   const Text(
-                                    'Circuito Inteligente (Mais Próximo Primeiro)',
+                                    'Circuito Inteligente',
                                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F2537)),
                                   ),
                                   IconButton(
@@ -447,7 +443,6 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                                       );
                                     }
 
-                                    // Ordenar por proximidade baseada na localização atual
                                     final list = List.from(docs);
                                     if (_currentPosition != null) {
                                       list.sort((a, b) {
