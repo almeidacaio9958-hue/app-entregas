@@ -46,7 +46,7 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
   String _distanciaTexto = 'Calculando...';
   String _tempoTexto = '-- min';
 
-  List<Map<String, dynamic>> _paradas = [
+  final List<Map<String, dynamic>> _paradas = [
     {
       'endereco': 'Rod. Pres. Tancredo Neves - Caieiras / Perus',
       'latLng': const LatLng(-23.355000, -46.765000),
@@ -539,5 +539,4 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
                               ),
                               title: Text(
                                 _paradas[index]['endereco'],
-                                style: TextStyle(
-                                  
+                                style: TextS
