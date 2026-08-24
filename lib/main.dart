@@ -84,11 +84,13 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
     }
     if (permission == LocationPermission.deniedForever) return;
 
-    final posInicial = await Geolocator.getCurrentPosition();
-    setState(() {
-      _posicaoVeiculo = LatLng(posInicial.latitude, posInicial.longitude);
-    });
-    _mapController.move(_posicaoVeiculo, 16.0);
+    try {
+      final posInicial = await Geolocator.getCurrentPosition();
+      setState(() {
+        _posicaoVeiculo = LatLng(posInicial.latitude, posInicial.longitude);
+      });
+      _mapController.move(_posicaoVeiculo, 16.0);
+    } catch (_) {}
 
     const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
@@ -149,38 +151,31 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
     }
   }
 
-  void _abrirCameraScan() {
-    Navigator.push(
+  void _abrirCameraScan() async {
+    final resultado = await Navigator.push<String>(
       context,
-      MaterialPageRoute(
-        builder: (context) => Scaffold(
-          appBar: AppBar(title: const Text('Escanear Pacote')),
-          body: MobileScanner(
-            onDetect: (capture) {
-              final barcodes = capture.barcodes;
-              if (barcodes.isNotEmpty) {
-                final valor = barcodes.first.rawValue ?? 'Pacote #${_paradas.length + 1}';
-                Navigator.pop(context);
-                _adicionarParadaEscaneada(valor);
-              }
-            },
-          ),
-        ),
-      ),
+      MaterialPageRoute(builder: (context) => const TelaLeitorScanner()),
     );
+
+    if (resultado != null && resultado.isNotEmpty) {
+      _adicionarParadaEscaneada(resultado);
+    }
   }
 
   void _adicionarParadaEscaneada(String codigoLido) {
     setState(() {
       _paradas.add({
-        'endereco': 'Entrega: $codigoLido',
-        'latLng': LatLng(_posicaoVeiculo.latitude + 0.005, _posicaoVeiculo.longitude + 0.005),
+        'endereco': 'Entrega #Scan: $codigoLido',
+        'latLng': LatLng(_posicaoVeiculo.latitude + 0.004, _posicaoVeiculo.longitude + 0.004),
         'entregue': false,
       });
     });
     _buscarRotaRealPelasVias();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Pacote escaneado: $codigoLido'), backgroundColor: Colors.green),
+      SnackBar(
+        content: Text('Pacote $codigoLido adicionado à rota!'),
+        backgroundColor: Colors.green,
+      ),
     );
   }
 
@@ -573,6 +568,136 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class TelaLeitorScanner extends StatefulWidget {
+  const TelaLeitorScanner({super.key});
+
+  @override
+  State<TelaLeitorScanner> createState() => _TelaLeitorScannerState();
+}
+
+class _TelaLeitorScannerState extends State<TelaLeitorScanner> with WidgetsBindingObserver {
+  late MobileScannerController _controller;
+  bool _jaDetectou = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _controller = MobileScannerController(
+      detectionSpeed: DetectionSpeed.noDuplicates,
+      autoStart: true,
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    if (state == AppLifecycleState.resumed) {
+      _controller.start();
+    } else if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      _controller.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Escanear Pacote / Etiqueta'),
+        backgroundColor: Colors.teal,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flash_on),
+            onPressed: () => _controller.toggleTorch(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.cameraswitch),
+            onPressed: () => _controller.switchCamera(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => _controller.start(),
+          ),
+        ],
+      ),
+      body: Stack(
+        alignment: Alignment.center,
+        children: [
+          MobileScanner(
+            controller: _controller,
+            errorBuilder: (context, error, child) {
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.videocam_off, color: Colors.orange, size: 50),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Inicializando a câmera...',
+                      style: TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: () => _controller.start(),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Tentar novamente'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.teal,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+            onDetect: (capture) {
+              if (_jaDetectou) return;
+              final barcodes = capture.barcodes;
+              for (final barcode in barcodes) {
+                if (barcode.rawValue != null && barcode.rawValue!.isNotEmpty) {
+                  _jaDetectou = true;
+                  Navigator.pop(context, barcode.rawValue);
+                  break;
+                }
+              }
+            },
+          ),
+          Container(
+            width: 260,
+            height: 260,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.greenAccent, width: 3),
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          const Positioned(
+            bottom: 40,
+            child: Card(
+              color: Colors.black87,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(
+                  'Aponte para o código de barras ou QR Code',
+                  style: TextStyle(color: Colors.white, fontSize: 14),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
