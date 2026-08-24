@@ -713,7 +713,7 @@ class _OtimizeScreenState extends State<OtimizeScreen> {
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             IconButton(
-                                              icon: const Icon(Icons.three_d_rotation, color: Color(0xFF1A73E8)),
+                                              icon: const Icon(Icons.explore, color: Color(0xFF1A73E8)),
                                               onPressed: () {
                                                 Navigator.push(
                                                   context,
@@ -804,11 +804,15 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
       setState(() {
         _currentPosition = LatLng(pos.latitude, pos.longitude);
         _heading = pos.heading;
-        _speed = pos.speed * 3.6; // km/h
+        _speed = pos.speed * 3.6;
       });
       _fetchStreetRoute();
     }
 
+    _positionStreamLocal();
+  }
+
+  void _positionStreamLocal() {
     _stream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.bestForNavigation,
@@ -853,7 +857,7 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
     final a = 0.5 -
         c((widget.target.latitude - _currentPosition!.latitude) * p) / 2 +
         c(_currentPosition!.latitude * p) * c(widget.target.latitude * p) * (1 - c((widget.target.longitude - _currentPosition!.longitude) * p)) / 2;
-    return (12742 * math.asin(math.sqrt(a))) * 1000; // metros
+    return (12742 * math.asin(math.sqrt(a))) * 1000;
   }
 
   @override
@@ -864,12 +868,11 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // MAPA COM PERSPECTIVA 3D INCLINADA
           Transform(
             alignment: Alignment.center,
             transform: Matrix4.identity()
-              ..setEntry(3, 2, 0.0018) // Perspectiva 3D
-              ..rotateX(0.55), // Inclinação da câmera 3D
+              ..setEntry(3, 2, 0.0018)
+              ..rotateX(0.55),
             child: FlutterMap(
               mapController: _navMapController,
               options: MapOptions(
@@ -915,8 +918,6 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
               ],
             ),
           ),
-
-          // HUD SUPERIOR (ESTILO WAZE / GOOGLE MAPS)
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(12.0),
@@ -961,8 +962,6 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
               ),
             ),
           ),
-
-          // PAINEL INFERIOR (VELOCIDADE + CONCLUIR ENTREGA)
           Positioned(
             left: 16,
             right: 16,
@@ -971,7 +970,6 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Velocímetro digital
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
@@ -984,7 +982,6 @@ class _GpsNavigation3DScreenState extends State<GpsNavigation3DScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                // Botão de concluir parada
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
