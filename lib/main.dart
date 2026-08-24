@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -10,65 +11,89 @@ import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 void main() {
-  runApp(const AppNavegadorTempoReal());
+  runApp(const AppEntregasProfissional());
 }
 
-class AppNavegadorTempoReal extends StatelessWidget {
-  const AppNavegadorTempoReal({super.key});
+class AppEntregasProfissional extends StatelessWidget {
+  const AppEntregasProfissional({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'GPS Navegação Entregas',
-      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.teal),
-      home: const TelaGPSTempoReal(),
+      title: 'Circuit Navigation Pro',
+      theme: ThemeData(
+        useMaterial3: true,
+        fontFamily: 'Roboto',
+        colorSchemeSeed: const Color(0xFF1A73E8),
+        scaffoldBackgroundColor: const Color(0xFFF1F4F9),
+      ),
+      home: const TelaPrincipalNavegacao(),
     );
   }
 }
 
-class TelaGPSTempoReal extends StatefulWidget {
-  const TelaGPSTempoReal({super.key});
+class TelaPrincipalNavegacao extends StatefulWidget {
+  const TelaPrincipalNavegacao({super.key});
 
   @override
-  State<TelaGPSTempoReal> createState() => _TelaGPSTempoRealState();
+  State<TelaPrincipalNavegacao> createState() => _TelaPrincipalNavegacaoState();
 }
 
-class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
+class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
   final MapController _mapController = MapController();
   final ImagePicker _picker = ImagePicker();
   final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
-  LatLng _posicaoVeiculo = const LatLng(-23.328000, -46.732000);
+  LatLng _posicaoAtual = const LatLng(-23.328000, -46.732000);
   StreamSubscription<Position>? _streamPosicao;
-  double _anguloCarro = 0.0;
+  double _velocidadeKmH = 0.0;
+  double _anguloDirecao = 0.0;
 
-  bool _emNavegacao = false;
-  bool _emParadaEntrega = false;
-  bool _carregandoRota = false;
+  bool _modoNavegacao = false;
+  bool _calculando = false;
 
-  List<LatLng> _pontosDaViaReal = [];
-  String _distanciaTexto = 'Calculando...';
-  String _tempoTexto = '-- min';
+  List<LatLng> _geometriaRota = [];
+  String _distanciaFormatada = '0.0 km';
+  String _tempoRestante = '0 min';
+  String _previsaoChegada = '00:00';
+  String _proximaManobraTexto = 'Siga em frente';
 
-  final List<Map<String, dynamic>> _paradas = [
+  final List<Map<String, dynamic>> _listaParadas = [
     {
-      'endereco': 'Rod. Pres. Tancredo Neves - Caieiras / Perus',
-      'latLng': const LatLng(-23.355000, -46.765000),
+      'endereco': 'R. Joaquim Floriano, 834',
+      'bairro': 'Itaim Bibi, 04537-011',
+      'tipo': 'Pequeno',
+      'pacote': 'Sacola',
+      'latLng': const LatLng(-23.332000, -46.736000),
       'entregue': false,
+      'horario': '09:00',
     },
     {
-      'endereco': 'Av. dos Coqueiros, 200 - Centro',
-      'latLng': const LatLng(-23.320000, -46.720000),
+      'endereco': 'R. Bandeira Paulista, 520',
+      'bairro': 'Itaim Bibi, 04537-011',
+      'tipo': 'Médio',
+      'pacote': 'Caixa',
+      'latLng': const LatLng(-23.340000, -46.742000),
       'entregue': false,
+      'horario': '09:24',
+    },
+    {
+      'endereco': 'R. Clodomiro Amazonas, 719',
+      'bairro': 'Vila Nova Conceição',
+      'tipo': 'Pequeno',
+      'pacote': 'Envelope',
+      'latLng': const LatLng(-23.348000, -46.750000),
+      'entregue': false,
+      'horario': '09:45',
     },
   ];
 
   @override
   void initState() {
     super.initState();
-    _iniciarMonitoramentoGPSReal();
-    _buscarRotaRealPelasVias();
+    _iniciarGpsNativo();
+    _recalcularRotaCompleta();
   }
 
   @override
@@ -78,7 +103,7 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
     super.dispose();
   }
 
-  Future<void> _iniciarMonitoramentoGPSReal() async {
+  Future<void> _iniciarGpsNativo() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
 
@@ -90,565 +115,645 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
     if (permission == LocationPermission.deniedForever) return;
 
     try {
-      final posInicial = await Geolocator.getCurrentPosition();
+      final pos = await Geolocator.getCurrentPosition();
       setState(() {
-        _posicaoVeiculo = LatLng(posInicial.latitude, posInicial.longitude);
+        _posicaoAtual = LatLng(pos.latitude, pos.longitude);
       });
-      _mapController.move(_posicaoVeiculo, 16.0);
+      _mapController.move(_posicaoAtual, 16.0);
     } catch (_) {}
 
-    const locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5,
-    );
-
-    _streamPosicao = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position pos) {
-      final novaPos = LatLng(pos.latitude, pos.longitude);
+    const settings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 3);
+    _streamPosicao = Geolocator.getPositionStream(locationSettings: settings).listen((Position pos) {
       setState(() {
-        _posicaoVeiculo = novaPos;
+        _posicaoAtual = LatLng(pos.latitude, pos.longitude);
+        _velocidadeKmH = math.max(0.0, (pos.speed * 3.6));
         if (pos.heading != 0) {
-          _anguloCarro = pos.heading * (3.141592653589793 / 180.0);
+          _anguloDirecao = pos.heading * (math.pi / 180.0);
         }
       });
-
-      if (_emNavegacao) {
-        _mapController.move(novaPos, 17.5);
+      if (_modoNavegacao) {
+        _mapController.move(_posicaoAtual, 17.5);
       }
     });
   }
 
-  Future<void> _buscarRotaRealPelasVias() async {
-    final pendentes = _paradas.where((p) => !p['entregue']).toList();
+  Future<void> _recalcularRotaCompleta() async {
+    final pendentes = _listaParadas.where((p) => !p['entregue']).toList();
     if (pendentes.isEmpty) {
-      setState(() => _pontosDaViaReal = []);
+      setState(() => _geometriaRota = []);
       return;
     }
 
-    setState(() => _carregandoRota = true);
-
-    LatLng destino = pendentes.first['latLng'];
+    setState(() => _calculando = true);
+    final destino = pendentes.first['latLng'] as LatLng;
     final url = Uri.parse(
       'https://router.project-osrm.org/route/v1/driving/'
-      '${_posicaoVeiculo.longitude},${_posicaoVeiculo.latitude};'
+      '${_posicaoAtual.longitude},${_posicaoAtual.latitude};'
       '${destino.longitude},${destino.latitude}'
-      '?overview=full&geometries=geojson',
+      '?overview=full&geometries=geojson&steps=true',
     );
 
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final coordinates = data['routes'][0]['geometry']['coordinates'] as List;
-        final double distMetros = data['routes'][0]['distance'].toDouble();
+        final coords = data['routes'][0]['geometry']['coordinates'] as List;
+        final double distanciaMetros = data['routes'][0]['distance'].toDouble();
         final double duracaoSegundos = data['routes'][0]['duration'].toDouble();
 
-        List<LatLng> rotaExtraida = coordinates.map((c) => LatLng(c[1], c[0])).toList();
+        final steps = data['routes'][0]['legs'][0]['steps'] as List;
+        String proximaRua = 'Siga até o destino';
+        if (steps.length > 1) {
+          proximaRua = steps[1]['name'] ?? 'Mantenha-se na via';
+          if (proximaRua.trim().isEmpty) proximaRua = 'Vire na próxima via';
+        }
+
+        final agora = DateTime.now();
+        final chegada = agora.add(Duration(seconds: duracaoSegundos.round()));
+        final formatChegada = '${chegada.hour.toString().padLeft(2, '0')}:${chegada.minute.toString().padLeft(2, '0')}';
 
         setState(() {
-          _pontosDaViaReal = rotaExtraida;
-          _distanciaTexto = '${(distMetros / 1000).toStringAsFixed(1)} km';
-          _tempoTexto = '${(duracaoSegundos / 60).round()} min';
-          _carregandoRota = false;
+          _geometriaRota = coords.map((c) => LatLng(c[1], c[0])).toList();
+          _distanciaFormatada = '${(distanciaMetros / 1000).toStringAsFixed(2)} km';
+          _tempoRestante = '${(duracaoSegundos / 60).round()} min';
+          _previsaoChegada = formatChegada;
+          _proximaManobraTexto = proximaRua;
+          _calculando = false;
         });
       }
     } catch (_) {
-      setState(() => _carregandoRota = false);
+      setState(() => _calculando = false);
     }
   }
 
-  Future<void> _escanearEtiquetaComCamera() async {
+  Future<void> _escanearEtiquetaOCR() async {
     await Permission.camera.request();
-
     try {
-      final XFile? foto = await _picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 90,
-      );
-
+      final XFile? foto = await _picker.pickImage(source: ImageSource.camera, imageQuality: 95);
       if (foto == null) return;
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Identificando endereço da etiqueta...')),
       );
 
       final inputImage = InputImage.fromFilePath(foto.path);
       final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
+      String texto = recognizedText.text;
 
-      String textoCompleto = recognizedText.text;
+      final linhas = texto.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      String enderecoFinal = '';
+      String cep = '';
 
-      // 1. Extrair CEP (formato 00000-000 ou 00000000)
-      final cepMatch = RegExp(r'\b\d{5}-?\d{3}\b').firstMatch(textoCompleto);
-      String cepEncontrado = cepMatch != null ? cepMatch.group(0)!.replaceAll('-', '') : '';
+      final cepMatch = RegExp(r'(?:CEP:?\s*)?(\d{5}-?\d{3}|\d{8})').firstMatch(texto);
+      if (cepMatch != null) {
+        cep = cepMatch.group(1)!.replaceAll('-', '');
+      }
 
-      // 2. Extrair linha de Endereço (Rua, Av, etc)
-      String enderecoEncontrado = '';
-      final linhas = textoCompleto.split('\n');
-      for (String linha in linhas) {
-        final l = linha.toLowerCase();
-        if (l.contains('rua') || l.contains('av') || l.contains('avenida') || l.contains('travessa') || l.contains('endereço:')) {
-          enderecoEncontrado = linha.replaceAll(RegExp(r'endereço:?', caseSensitive: false), '').trim();
+      for (int i = 0; i < linhas.length; i++) {
+        final l = linhas[i];
+        final lLow = l.toLowerCase();
+        if (lLow.startsWith('endereço:') || lLow.startsWith('endereco:')) {
+          enderecoFinal = l.replaceFirst(RegExp(r'endere[çc]o:\s*', caseSensitive: false), '').trim();
           break;
+        } else if (enderecoFinal.isEmpty && i > 2 && (lLow.contains('rua ') || lLow.contains('av.'))) {
+          enderecoFinal = l;
         }
       }
 
-      // 3. Geocodificar para pegar a Latitude e Longitude real
-      LatLng? coordenadaDestino;
-      String enderecoFinal = enderecoEncontrado.isNotEmpty ? enderecoEncontrado : 'Entrega CEP $cepEncontrado';
-
-      if (enderecoEncontrado.isNotEmpty) {
-        coordenadaDestino = await _obterLatLngPorEndereco('$enderecoEncontrado, Franco da Rocha - SP');
+      if (enderecoFinal.isEmpty && cep.isNotEmpty) {
+        enderecoFinal = 'Entrega CEP $cep';
       }
 
-      if (coordenadaDestino == null && cepEncontrado.isNotEmpty) {
-        coordenadaDestino = await _obterLatLngPorCep(cepEncontrado);
-      }
+      _confirmarAdicaoManual(enderecoFinal, cep);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao ler: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
 
-      coordenadaDestino ??= LatLng(_posicaoVeiculo.latitude + 0.005, _posicaoVeiculo.longitude + 0.005);
+  void _confirmarAdicaoManual(String endereco, String cep) {
+    final ctrl = TextEditingController(text: endereco);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          top: 20,
+          left: 20,
+          right: 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Confirmar Parada', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              decoration: InputDecoration(
+                labelText: 'Endereço',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  setState(() {
+                    _listaParadas.add({
+                      'endereco': ctrl.text.trim(),
+                      'bairro': 'São Paulo',
+                      'tipo': 'Pequeno',
+                      'pacote': 'Caixa',
+                      'latLng': LatLng(_posicaoAtual.latitude + 0.004, _posicaoAtual.longitude + 0.004),
+                      'entregue': false,
+                      'horario': '10:15',
+                    });
+                  });
+                  _recalcularRotaCompleta();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A73E8),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Adicionar à Rota', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
 
+  void _finalizarParadaAtual(bool sucesso) {
+    final index = _listaParadas.indexWhere((p) => !p['entregue']);
+    if (index != -1) {
       setState(() {
-        _paradas.add({
-          'endereco': enderecoFinal,
-          'latLng': coordenadaDestino,
-          'entregue': false,
-        });
+        _listaParadas[index]['entregue'] = true;
       });
-
-      _buscarRotaRealPelasVias();
-
+      _recalcularRotaCompleta();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Endereço adicionado: $enderecoFinal'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 4),
+          content: Text(sucesso ? 'Entrega concluída com sucesso! ✅' : 'Tentativa registrada como falha ❌'),
+          backgroundColor: sucesso ? Colors.green.shade700 : Colors.red.shade700,
         ),
       );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao ler etiqueta: $e'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  Future<LatLng?> _obterLatLngPorEndereco(String query) async {
-    try {
-      final url = Uri.parse('https://nominatim.openstreetmap.org/search?q=${Uri.encodeComponent(query)}&format=json&limit=1');
-      final res = await http.get(url, headers: {'User-Agent': 'AppEntregasGPS/1.0'});
-      if (res.statusCode == 200) {
-        final list = jsonDecode(res.body) as List;
-        if (list.isNotEmpty) {
-          return LatLng(double.parse(list[0]['lat']), double.parse(list[0]['lon']));
-        }
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  Future<LatLng?> _obterLatLngPorCep(String cep) async {
-    try {
-      final urlViaCep = Uri.parse('https://viacep.com.br/ws/$cep/json/');
-      final resViaCep = await http.get(urlViaCep);
-      if (resViaCep.statusCode == 200) {
-        final data = jsonDecode(resViaCep.body);
-        final logradouro = data['logradouro'] ?? '';
-        final localidade = data['localidade'] ?? '';
-        final uf = data['uf'] ?? '';
-        return await _obterLatLngPorEndereco('$logradouro, $localidade - $uf');
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  void _marcarComoEntregue(int index) {
-    setState(() {
-      _paradas[index]['entregue'] = !_paradas[index]['entregue'];
-    });
-    _buscarRotaRealPelasVias();
-  }
-
-  void _iniciarNavegacao() {
-    setState(() {
-      _emNavegacao = true;
-      _emParadaEntrega = false;
-    });
-    _mapController.move(_posicaoVeiculo, 17.5);
-  }
-
-  void _continuarProximaEntrega() {
-    final pendentes = _paradas.where((p) => !p['entregue']).toList();
-    if (pendentes.isNotEmpty) {
-      setState(() {
-        pendentes.first['entregue'] = true;
-        _emParadaEntrega = false;
-      });
-    }
-
-    final novasPendentes = _paradas.where((p) => !p['entregue']).toList();
-    if (novasPendentes.isEmpty) {
-      setState(() => _emNavegacao = false);
-      _mapController.move(_posicaoVeiculo, 14.0);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Todas as entregas concluídas!'), backgroundColor: Colors.green),
-      );
-    } else {
-      _buscarRotaRealPelasVias();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final Marker marcadorVeiculo = Marker(
-      point: _posicaoVeiculo,
-      width: 50,
-      height: 50,
+    final paradaAtiva = _listaParadas.firstWhere(
+      (p) => !p['entregue'],
+      orElse: () => {'endereco': 'Sem entregas pendentes', 'tipo': '-', 'pacote': '-'},
+    );
+    final totalParadas = _listaParadas.length;
+    final concluidas = _listaParadas.where((p) => p['entregue']).length;
+    final paradaAtualNum = math.min(totalParadas, concluidas + 1);
+
+    // Marcador do Carrinho/Navegador
+    final markerCarro = Marker(
+      point: _posicaoAtual,
+      width: 60,
+      height: 60,
       child: Transform.rotate(
-        angle: _anguloCarro,
+        angle: _anguloDirecao,
         child: Stack(
           alignment: Alignment.center,
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
-                color: Colors.blue.withValues(alpha: 0.25),
+                color: Colors.blue.withValues(alpha: 0.18),
                 shape: BoxShape.circle,
               ),
             ),
             Container(
-              width: 22,
-              height: 22,
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
                 color: const Color(0xFF1A73E8),
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 3),
-                boxShadow: const [
-                  BoxShadow(blurRadius: 6, color: Colors.black38, offset: Offset(0, 2))
-                ],
+                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2))],
               ),
-              child: const Icon(Icons.navigation, color: Colors.white, size: 12),
+              child: const Icon(Icons.navigation, color: Colors.white, size: 18),
             ),
           ],
         ),
       ),
     );
 
-    final List<Marker> marcadoresParadas = _paradas.asMap().entries.map((entry) {
-      int index = entry.key;
-      var parada = entry.value;
-      bool entregue = parada['entregue'] == true;
+    // Marcadores das Paradas (Tags numeradas estilo Circuit)
+    final markersParadas = _listaParadas.asMap().entries.map((entry) {
+      final idx = entry.key;
+      final parada = entry.value;
+      final bool entregue = parada['entregue'] == true;
 
       return Marker(
         point: parada['latLng'] as LatLng,
-        width: 38,
-        height: 38,
-        child: GestureDetector(
-          onTap: () => _marcarComoEntregue(index),
-          child: Container(
-            decoration: BoxDecoration(
-              color: entregue ? Colors.green.shade600 : const Color(0xFF1A73E8),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2),
-              boxShadow: const [
-                BoxShadow(blurRadius: 4, color: Colors.black38, offset: Offset(0, 2))
-              ],
+        width: 44,
+        height: 48,
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: entregue ? Colors.grey.shade400 : Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: entregue ? Colors.grey : const Color(0xFF1A73E8), width: 2),
+                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
+              ),
+              child: Text(
+                '${idx + 1}',
+                style: TextStyle(
+                  color: entregue ? Colors.grey.shade700 : const Color(0xFF1A73E8),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
             ),
-            child: Center(
-              child: entregue
-                  ? const Icon(Icons.check, color: Colors.white, size: 18)
-                  : Text(
-                      '${index + 1}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-            ),
-          ),
+            Icon(Icons.arrow_drop_down, color: entregue ? Colors.grey : const Color(0xFF1A73E8), size: 16),
+          ],
         ),
       );
     }).toList();
 
-    final paradaAtual = _paradas.firstWhere(
-      (p) => !p['entregue'],
-      orElse: () => {'endereco': 'Sem entregas pendentes'},
-    );
-
     return Scaffold(
       body: Stack(
         children: [
+          // 1. Mapa Base
           FlutterMap(
             mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _posicaoVeiculo,
-              initialZoom: 15.0,
-            ),
+            options: MapOptions(initialCenter: _posicaoAtual, initialZoom: 15.5),
             children: [
               TileLayer(
                 urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
                 subdomains: const ['a', 'b', 'c', 'd'],
-                userAgentPackageName: 'com.exemplo.rotas',
+                userAgentPackageName: 'com.circuit.app_entregas',
               ),
-              if (_pontosDaViaReal.isNotEmpty)
+              if (_geometriaRota.isNotEmpty)
                 PolylineLayer(
                   polylines: [
                     Polyline(
-                      points: _pontosDaViaReal,
-                      color: const Color(0xFF2C22E8),
-                      strokeWidth: _emNavegacao ? 7.5 : 5.0,
+                      points: _geometriaRota,
+                      color: const Color(0xFF1A73E8),
+                      strokeWidth: _modoNavegacao ? 7.0 : 5.0,
                     ),
                   ],
                 ),
-              MarkerLayer(markers: [marcadorVeiculo, ...marcadoresParadas]),
+              MarkerLayer(markers: [markerCarro, ...markersParadas]),
             ],
           ),
 
-          if (_emNavegacao) ...[
+          // 2. MODO NAVEGAÇÃO: Placa Superior Escura
+          if (_modoNavegacao)
             Positioned(
-              top: 35,
-              left: 12,
-              right: 12,
+              top: 40,
+              left: 16,
+              right: 16,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: _emParadaEntrega ? Colors.orange.shade900 : const Color(0xFF00564D),
+                  color: const Color(0xFF181F2C),
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: const [
-                    BoxShadow(blurRadius: 8, color: Colors.black45, offset: Offset(0, 3))
-                  ],
+                  boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 10, offset: Offset(0, 4))],
                 ),
                 child: Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: _emParadaEntrega ? Colors.orange.shade800 : Colors.teal.shade800,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        _emParadaEntrega ? Icons.local_shipping : Icons.turn_slight_right,
-                        color: Colors.white,
-                        size: 34,
-                      ),
-                    ),
+                    const Icon(Icons.turn_right_rounded, color: Colors.white, size: 40),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _emParadaEntrega ? 'Você Chegou!' : _distanciaTexto,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            _distanciaFormatada,
+                            style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500),
                           ),
-                          const SizedBox(height: 2),
                           Text(
-                            paradaAtual['endereco'],
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            maxLines: 2,
+                            _proximaManobraTexto,
+                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
                     ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8)),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.flag, color: Colors.white70, size: 14),
+                          const SizedBox(width: 4),
+                          Text(_previsaoChegada, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
+
+          // 3. Botões Laterais (Velocímetro + Camadas + Centralizar)
+          Positioned(
+            right: 16,
+            bottom: _modoNavegacao ? 220 : 340,
+            child: Column(
+              children: [
+                _botaoCircular(Icons.settings_outlined, () {}),
+                const SizedBox(height: 10),
+                _botaoCircular(Icons.layers_outlined, () {}),
+                const SizedBox(height: 10),
+                _botaoCircular(Icons.navigation, () {
+                  _mapController.move(_posicaoAtual, 17.0);
+                }, corIcone: const Color(0xFF1A73E8)),
+              ],
+            ),
+          ),
+
+          // Velocímetro (Estilo Google)
+          Positioned(
+            left: 16,
+            bottom: _modoNavegacao ? 220 : 340,
+            child: Container(
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.black12),
+                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2))],
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('${_velocidadeKmH.round()}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  const Text('km/h', style: TextStyle(fontSize: 8, color: Colors.grey)),
+                ],
+              ),
+            ),
+          ),
+
+          // 4. MODO NAVEGAÇÃO: Card Inferior Branco + Barra Preta de Status
+          if (_modoNavegacao)
             Positioned(
-              bottom: 0,
               left: 0,
               right: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(20),
-                    topRight: Radius.circular(20),
-                  ),
-                  boxShadow: [
-                    BoxShadow(blurRadius: 10, color: Colors.black26, offset: Offset(0, -3))
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
+              bottom: 0,
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 14),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2))],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 28, color: Colors.black87),
-                          onPressed: () {
-                            setState(() {
-                              _emNavegacao = false;
-                              _emParadaEntrega = false;
-                            });
-                            _mapController.move(_posicaoVeiculo, 15.0);
-                          },
+                        Text(
+                          paradaAtiva['endereco'] ?? '',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF181F2C)),
                         ),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _emParadaEntrega ? 'No Local de Entrega' : _tempoTexto,
-                                style: TextStyle(
-                                  color: _emParadaEntrega ? Colors.orange.shade800 : const Color(0xFF1E8E3E),
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle)),
+                            const SizedBox(width: 6),
+                            Text('$paradaAtualNum/$totalParadas  ', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                            const Icon(Icons.inventory_2_outlined, size: 14, color: Colors.grey),
+                            Text(' ${paradaAtiva['tipo']}  ', style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                            const Icon(Icons.shopping_bag_outlined, size: 14, color: Colors.grey),
+                            Text(' ${paradaAtiva['pacote']}', style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () => _finalizarParadaAtual(false),
+                                icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                                label: const Text('Falhou', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(color: Colors.red.shade200),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
                                 ),
                               ),
-                              Text(
-                                _emParadaEntrega ? 'Entregue o pacote ao cliente' : '$_distanciaTexto restantes',
-                                style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () => _finalizarParadaAtual(true),
+                                icon: const Icon(Icons.check_circle_outline, color: Colors.green),
+                                label: const Text('Entregue', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green.shade50,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
                               ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.my_location, size: 28, color: Color(0xFF1A73E8)),
-                          onPressed: () => _mapController.move(_posicaoVeiculo, 17.5),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    if (!_emParadaEntrega)
-                      ElevatedButton.icon(
-                        onPressed: () => setState(() => _emParadaEntrega = true),
-                        icon: const Icon(Icons.pause_circle_filled, color: Colors.white),
-                        label: const Text(
-                          'Parada para a Entrega',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    color: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () => setState(() => _modoNavegacao = false),
                         ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange.shade800,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 45),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        Column(
+                          children: [
+                            Text(_tempoRestante, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                            Text('$_previsaoChegada • $_distanciaFormatada', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                          ],
                         ),
-                      )
-                    else
-                      ElevatedButton.icon(
-                        onPressed: _continuarProximaEntrega,
-                        icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 24),
-                        label: const Text(
-                          'Continuar para Próxima Entrega',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        IconButton(
+                          icon: const Icon(Icons.menu, color: Colors.white),
+                          onPressed: () => setState(() => _modoNavegacao = false),
                         ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1E8E3E),
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 45),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      ),
-                  ],
-                ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
 
-          if (!_emNavegacao)
-            Positioned(
-              bottom: 15,
-              left: 10,
-              right: 10,
-              child: Card(
-                elevation: 8,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+          // 5. MODO LISTA / OTIMIZE (Painel de Paradas)
+          if (!_modoNavegacao)
+            DraggableScrollableSheet(
+              initialChildSize: 0.38,
+              minChildSize: 0.18,
+              maxChildSize: 0.85,
+              builder: (context, scrollController) {
+                return Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                    boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -3))],
+                  ),
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(18),
                     children: [
+                      Center(
+                        child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(10))),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Barra de Busca e Ações
                       Row(
                         children: [
                           Expanded(
-                            child: Text(
-                              _carregandoRota ? 'Calculando vias...' : 'Entregas (${_paradas.where((p) => !p['entregue']).length})',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                              overflow: TextOverflow.ellipsis,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              height: 44,
+                              decoration: BoxDecoration(color: const Color(0xFFF1F4F9), borderRadius: BorderRadius.circular(12)),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.search, color: Colors.grey, size: 20),
+                                  SizedBox(width: 8),
+                                  Text('Adicione ou busque', style: TextStyle(color: Colors.grey, fontSize: 14)),
+                                ],
+                              ),
                             ),
                           ),
-                          ElevatedButton.icon(
-                            onPressed: _escanearEtiquetaComCamera,
-                            icon: const Icon(Icons.camera_alt, size: 15),
-                            label: const Text('Escanear Etiqueta', style: TextStyle(fontSize: 12)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1A73E8),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              minimumSize: const Size(0, 34),
+                          const SizedBox(width: 10),
+                          IconButton.filled(
+                            onPressed: _escanearEtiquetaOCR,
+                            icon: const Icon(Icons.camera_alt),
+                            style: IconButton.styleFrom(backgroundColor: const Color(0xFF1A73E8)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      Text('Término $_previsaoChegada • $totalParadas paradas • $_distanciaFormatada', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                      const Text('São Paulo / Franco da Rocha', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {},
+                              icon: const Icon(Icons.share_outlined, size: 16),
+                              label: const Text('Compartilhar rota', style: TextStyle(fontSize: 12)),
+                              style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                             ),
                           ),
-                          const SizedBox(width: 6),
-                          ElevatedButton.icon(
-                            onPressed: _paradas.any((p) => !p['entregue']) ? _iniciarNavegacao : null,
-                            icon: const Icon(Icons.navigation, size: 15),
-                            label: const Text('Iniciar', style: TextStyle(fontSize: 12)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1E8E3E),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                              minimumSize: const Size(0, 34),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => setState(() => _modoNavegacao = true),
+                              icon: const Icon(Icons.navigation, size: 16),
+                              label: const Text('Navegar', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF1A73E8),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      const Divider(),
-                      SizedBox(
-                        height: 110,
-                        child: ListView.builder(
-                          itemCount: _paradas.length,
-                          itemBuilder: (context, index) {
-                            bool entregue = _paradas[index]['entregue'] == true;
+                      const Divider(height: 28),
 
-                            return ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              leading: CircleAvatar(
-                                radius: 12,
-                                backgroundColor: entregue ? Colors.green.shade600 : const Color(0xFF1A73E8),
-                                child: entregue
-                                    ? const Icon(Icons.check, color: Colors.white, size: 14)
-                                    : Text(
-                                        '${index + 1}',
-                                        style: const TextStyle(color: Colors.white, fontSize: 11),
+                      // Lista com Timeline
+                      ..._listaParadas.asMap().entries.map((entry) {
+                        final i = entry.key;
+                        final p = entry.value;
+                        final bool entregue = p['entregue'] == true;
+
+                        return IntrinsicHeight(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Column(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 12,
+                                    backgroundColor: entregue ? Colors.green : const Color(0xFF1A73E8),
+                                    child: entregue
+                                        ? const Icon(Icons.check, size: 14, color: Colors.white)
+                                        : Text('${i + 1}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                  ),
+                                  if (i != _listaParadas.length - 1)
+                                    Expanded(
+                                      child: Container(width: 2, color: Colors.blue.shade100),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(bottom: 20.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        p['endereco'],
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          decoration: entregue ? TextDecoration.lineThrough : null,
+                                        ),
                                       ),
-                              ),
-                              title: Text(
-                                _paradas[index]['endereco'],
-                                style: TextStyle(
-                                  decoration: entregue ? TextDecoration.lineThrough : null,
-                                  color: entregue ? Colors.grey : Colors.black87,
-                                  fontSize: 13,
+                                      Text(p['bairro'], style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                    ],
+                                  ),
                                 ),
                               ),
-                              trailing: IconButton(
-                                icon: Icon(
-                                  entregue ? Icons.check_box : Icons.check_box_outline_blank,
-                                  color: entregue ? Colors.green : Colors.grey,
-                                  size: 20,
-                                ),
-                                onPressed: () => _marcarComoEntregue(index),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
+                              Text(p['horario'], style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                            ],
+                          ),
+                        );
+                      }),
                     ],
                   ),
-                ),
-              ),
+                );
+              },
             ),
         ],
       ),
+    );
+  }
+
+  Widget _botaoCircular(IconData icone, VoidCallback onTap, {Color corIcone = const Color(0xFF181F2C)}) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2))],
+      ),
+      child: IconButton(icon: Icon(icone, color: corIcone, size: 20), onPressed: onTap),
     );
   }
 }
