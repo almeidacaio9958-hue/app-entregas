@@ -1,5 +1,5 @@
 name: app_entregas
-description: "App de Entregas com GPS e OCR de Endereço"
+description: "App de Circuito de Entregas"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,15 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_map: ^7.0.2
-  latlong2: ^0.9.1
-  http: ^1.2.0
-  geolocator: ^13.0.1
-  google_mlkit_text_recognition: ^0.13.0
-  image_picker: ^1.1.2
-  permission_handler: ^12.0.3
-  url_launcher: ^6.3.0
-  shared_preferences: ^2.3.2
+  firebase_core: ^2.24.2
+  firebase_auth: ^4.16.0
+  url_launcher: ^6.2.2
+  cupertino_icons: ^1.0.8
 
 dev_dependencies:
   flutter_test:
