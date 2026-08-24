@@ -1,5 +1,5 @@
 name: app_entregas
-description: "App de Entregas com GPS e Scanner"
+description: "App de Entregas com GPS e OCR de Endereço"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -13,7 +13,8 @@ dependencies:
   latlong2: ^0.9.1
   http: ^1.2.0
   geolocator: ^13.0.1
-  simple_barcode_scanner: ^0.6.0
+  google_mlkit_text_recognition: ^0.13.0
+  image_picker: ^1.1.2
   permission_handler: ^12.0.3
 
 dev_dependencies:
