@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'math.dart' as math;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,10 +21,10 @@ class CircuitoEntregasApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Circuito de Rotas',
+      title: 'Otimize',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFF5722)),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3F51B5)),
         useMaterial3: true,
       ),
       home: const AuthWrapper(),
@@ -40,7 +44,7 @@ class AuthWrapper extends StatelessWidget {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
         if (snapshot.hasData) {
-          return const MainScreen();
+          return const OtimizeScreen();
         }
         return const LoginScreen();
       },
@@ -97,7 +101,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ignore: deprecated_member_use
     return Scaffold(
+      backgroundColor: const Color(0xFFC5D9F8),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
@@ -105,19 +111,19 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.local_shipping, size: 72, color: Color(0xFFFF5722)),
-              const SizedBox(height: 16),
-              Text(
-                _isLogin ? 'Circuito de Rotas' : 'Criar Conta',
+              const Text(
+                'Otimize',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Color(0xFF0F2537)),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
                   labelText: 'E-mail',
+                  filled: true,
+                  fillColor: Colors.white,
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.email),
                 ),
@@ -128,6 +134,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 obscureText: true,
                 decoration: const InputDecoration(
                   labelText: 'Senha',
+                  filled: true,
+                  fillColor: Colors.white,
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.lock),
                 ),
@@ -138,7 +146,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   : ElevatedButton(
                       onPressed: _submit,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF5722),
+                        backgroundColor: const Color(0xFF0F2537),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
@@ -148,6 +156,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: () => setState(() => _isLogin = !_isLogin),
                 child: Text(
                   _isLogin ? 'Não tem conta? Cadastre-se' : 'Já tem conta? Faça login',
+                  style: const TextStyle(color: Color(0xFF0F2537)),
                 ),
               ),
             ],
@@ -158,8 +167,54 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-class MainScreen extends StatelessWidget {
-  const MainScreen({super.key});
+class OtimizeScreen extends StatefulWidget {
+  const OtimizeScreen({super.key});
+
+  @override
+  State<OtimizeScreen> createState() => _OtimizeScreenState();
+}
+
+class _OtimizeScreenState extends State<OtimizeScreen> {
+  LatLng? _currentPosition;
+  final _user = FirebaseAuth.instance.currentUser;
+
+  @override
+  void initState() {
+    super.initState();
+    _determinePosition();
+  }
+
+  Future<void> _determinePosition() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+
+    if (permission == LocationPermission.deniedForever) return;
+
+    final position = await Geolocator.getCurrentPosition();
+    if (mounted) {
+      setState(() {
+        _currentPosition = LatLng(position.latitude, position.longitude);
+      });
+    }
+  }
+
+  double _calculateDistance(LatLng p1, LatLng p2) {
+    var p = 0.017453292519943295;
+    var c = math.cos;
+    var a = 0.5 - c((p2.latitude - p1.latitude) * p) / 2 +
+        c(p1.latitude * p) * c(p2.latitude * p) *
+            (1 - c((p2.longitude - p1.longitude) * p)) / 2;
+    return 12742 * math.asin(math.sqrt(a));
+  }
 
   Future<void> _openExternalMap(String address) async {
     final query = Uri.encodeComponent(address);
@@ -169,133 +224,305 @@ class MainScreen extends StatelessWidget {
     }
   }
 
+  void _showAddModal({String initialCode = ''}) {
+    final addressCtrl = TextEditingController(text: initialCode);
+    final complementCtrl = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          left: 20,
+          right: 20,
+          top: 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Adicionar Nova Parada',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F2537)),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: addressCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Endereço / Pacote lido',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: complementCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Complemento / Nome do cliente',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () async {
+                final addr = addressCtrl.text.trim();
+                if (addr.isEmpty) return;
+
+                // Coordenadas simuladas para o endereço inserido próximas ao usuário
+                final baseLat = _currentPosition?.latitude ?? -23.5505;
+                final baseLng = _currentPosition?.longitude ?? -46.6333;
+
+                await FirebaseFirestore.instance.collection('deliveries').add({
+                  'userId': _user?.uid,
+                  'address': addr,
+                  'complement': complementCtrl.text.trim(),
+                  'status': 'pendente',
+                  'lat': baseLat + (DateTime.now().millisecond % 50) * 0.001,
+                  'lng': baseLng + (DateTime.now().millisecond % 50) * 0.001,
+                  'createdAt': FieldValue.serverTimestamp(),
+                });
+
+                if (mounted) Navigator.pop(ctx);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0F2537),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              child: const Text('Salvar na Rota'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openScanner() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Escanear Código do Pacote'),
+            backgroundColor: const Color(0xFF0F2537),
+            foregroundColor: Colors.white,
+          ),
+          body: MobileScanner(
+            onDetect: (capture) {
+              final barcodes = capture.barcodes;
+              for (final barcode in barcodes) {
+                final code = barcode.rawValue;
+                if (code != null && code.isNotEmpty) {
+                  Navigator.pop(ctx);
+                  _showAddModal(initialCode: code);
+                  break;
+                }
+              }
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    // Coordenadas padrão da região de Franco da Rocha / SP
-    final initialLocation = const LatLng(-23.3228, -46.7275);
+    final defaultLocation = const LatLng(-23.5505, -46.6333);
+    final centerMap = _currentPosition ?? defaultLocation;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFCF7F6),
-      appBar: AppBar(
-        title: const Text(
-          'Circuito de Rotas',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: const Color(0xFFFF5722),
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => FirebaseAuth.instance.signOut(),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Faixa com e-mail do motorista
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            color: const Color(0xFFFBECE8),
-            child: Text(
-              'Motorista: ${user?.email ?? "almeidacaio9958@gmail.com"}',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-            ),
-          ),
-          // Mapa integrado
-          Expanded(
-            flex: 4,
-            child: FlutterMap(
-              options: MapOptions(
-                initialCenter: initialLocation,
-                initialZoom: 14.0,
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.app_entregas',
-                ),
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: initialLocation,
-                      width: 40,
-                      height: 40,
-                      child: const Icon(
-                        Icons.location_on,
-                        color: Color(0xFFFF5722),
-                        size: 36,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          // Lista de entregas como antes
-          Expanded(
-            flex: 5,
-            child: ListView(
-              padding: const EdgeInsets.all(12),
-              children: [
-                Card(
-                  elevation: 1.5,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+      backgroundColor: const Color(0xFFC5D9F8),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.logout, color: Color(0xFF0F2537)),
+                    onPressed: () => FirebaseAuth.instance.signOut(),
                   ),
-                  color: const Color(0xFFFFF9F8),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12.0),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 20,
-                          backgroundColor: const Color(0xFFFF5722),
-                          child: const Text(
-                            '1',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
+                  const Text(
+                    'Otimize',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF0F2537)),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF0F2537)),
+                    onPressed: _openScanner,
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+                ),
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+                  child: Column(
+                    children: [
+                      // MAPA
+                      Expanded(
+                        flex: 5,
+                        child: FlutterMap(
+                          options: MapOptions(
+                            initialCenter: centerMap,
+                            initialZoom: 14.0,
                           ),
+                          children: [
+                            TileLayer(
+                              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                              userAgentPackageName: 'com.example.app_entregas',
+                            ),
+                            MarkerLayer(
+                              markers: [
+                                if (_currentPosition != null)
+                                  Marker(
+                                    point: _currentPosition!,
+                                    width: 40,
+                                    height: 40,
+                                    child: const Icon(Icons.my_location, color: Colors.blue, size: 36),
+                                  ),
+                              ],
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 14),
-                        const Expanded(
+                      ),
+                      // PAINEL DE PARADAS ORDENADAS POR PROXIMIDADE
+                      Expanded(
+                        flex: 5,
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                            boxShadow: [
+                              BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -4)),
+                            ],
+                          ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'Ponto A - Rua Exemplo, 123',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.between,
+                                children: [
+                                  const Text(
+                                    'Circuito Inteligente (Mais Próximo Primeiro)',
+                                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F2537)),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.add_circle, color: Color(0xFF0F2537), size: 32),
+                                    onPressed: () => _showAddModal(),
+                                  ),
+                                ],
                               ),
-                              SizedBox(height: 4),
-                              Text(
-                                'Franco da Rocha - SP',
-                                style: TextStyle(
-                                  color: Colors.black54,
-                                  fontSize: 13,
+                              const Divider(height: 10),
+                              Expanded(
+                                child: StreamBuilder<QuerySnapshot>(
+                                  stream: FirebaseFirestore.instance
+                                      .collection('deliveries')
+                                      .where('userId', isEqualTo: _user?.uid)
+                                      .snapshots(),
+                                  builder: (context, snapshot) {
+                                    if (snapshot.connectionState == ConnectionState.waiting) {
+                                      return const Center(child: CircularProgressIndicator());
+                                    }
+
+                                    final docs = snapshot.data?.docs ?? [];
+                                    if (docs.isEmpty) {
+                                      return const Center(
+                                        child: Text(
+                                          'Nenhum pacote na rota.\nEscaneie um código ou toque em +',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(color: Colors.grey),
+                                        ),
+                                      );
+                                    }
+
+                                    // Ordenar por proximidade baseada na localização atual
+                                    final list = List.from(docs);
+                                    if (_currentPosition != null) {
+                                      list.sort((a, b) {
+                                        final dataA = a.data() as Map<String, dynamic>;
+                                        final dataB = b.data() as Map<String, dynamic>;
+                                        final posA = LatLng(dataA['lat'] ?? 0.0, dataA['lng'] ?? 0.0);
+                                        final posB = LatLng(dataB['lat'] ?? 0.0, dataB['lng'] ?? 0.0);
+                                        final distA = _calculateDistance(_currentPosition!, posA);
+                                        final distB = _calculateDistance(_currentPosition!, posB);
+                                        return distA.compareTo(distB);
+                                      });
+                                    }
+
+                                    return ListView.builder(
+                                      itemCount: list.length,
+                                      itemBuilder: (context, index) {
+                                        final data = list[index].data() as Map<String, dynamic>;
+                                        final docId = list[index].id;
+                                        final isDone = data['status'] == 'concluido';
+
+                                        return ListTile(
+                                          contentPadding: EdgeInsets.zero,
+                                          leading: CircleAvatar(
+                                            backgroundColor: isDone ? Colors.green : const Color(0xFF0F2537),
+                                            child: Text(
+                                              '${index + 1}',
+                                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                          title: Text(
+                                            data['address'] ?? '',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              decoration: isDone ? TextDecoration.lineThrough : null,
+                                            ),
+                                          ),
+                                          subtitle: Text(data['complement'] ?? (isDone ? 'Concluído' : 'Pendente')),
+                                          trailing: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(Icons.navigation, color: Colors.blue),
+                                                onPressed: () => _openExternalMap(data['address']),
+                                              ),
+                                              IconButton(
+                                                icon: Icon(
+                                                  isDone ? Icons.check_circle : Icons.radio_button_unchecked,
+                                                  color: isDone ? Colors.green : Colors.grey,
+                                                ),
+                                                onPressed: () {
+                                                  FirebaseFirestore.instance
+                                                      .collection('deliveries')
+                                                      .doc(docId)
+                                                      .update({'status': isDone ? 'pendente' : 'concluido'});
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.navigation, color: Color(0xFFFF5722)),
-                          onPressed: () => _openExternalMap('Rua Exemplo, 123, Franco da Rocha - SP'),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
