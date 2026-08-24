@@ -7,7 +7,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
 
@@ -189,6 +190,7 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
   double _currentHeading = 0.0;
   List<LatLng> _routePoints = [];
   String _lastRouteHash = '';
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -231,11 +233,9 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
     });
   }
 
-  // MOTOR DE BUSCA DE ALTA PRECISÃO (ViaCEP + Nominatim com Bounding Box Brasil)
   Future<LatLng?> _geocodeHighPrecision(String input) async {
     String cleanInput = input.trim();
     
-    // 1. Se for formato de CEP (Ex: 14419899 ou 14419-899)
     final cepPattern = RegExp(r'(\d{5})-?(\d{3})');
     final match = cepPattern.firstMatch(cleanInput);
     if (match != null) {
@@ -254,7 +254,6 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
       } catch (_) {}
     }
 
-    // 2. Busca de Coordenadas Exatas no Nominatim com país Brasil
     try {
       final query = cleanInput.contains('Brasil') ? cleanInput : '$cleanInput, Brasil';
       final url = Uri.parse(
@@ -337,14 +336,14 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Adicionar Endereço Preciso',
+                'Adicionar Endereço Lido da Etiqueta',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF202124)),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: addressCtrl,
                 decoration: const InputDecoration(
-                  labelText: 'Rua e Número ou CEP (Ex: R. Tapuias 97, Franco da Rocha)',
+                  labelText: 'Rua e Número ou CEP do Pacote',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.location_on),
                 ),
@@ -368,7 +367,6 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
 
                         setModalState(() => isSearching = true);
 
-                        // Busca com precisão exata da coordenada
                         LatLng? coords = await _geocodeHighPrecision(addr);
 
                         if (coords == null) {
@@ -396,7 +394,7 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      child: const Text('Localizar e Salvar Parada', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: const Text('Salvar na Rota', style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
             ],
           ),
@@ -405,31 +403,48 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
     );
   }
 
-  void _openCameraScanner() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (ctx) => Scaffold(
-          appBar: AppBar(
-            title: const Text('Escanear Pacote'),
-            backgroundColor: const Color(0xFF1A73E8),
-            foregroundColor: Colors.white,
-          ),
-          body: MobileScanner(
-            onDetect: (capture) {
-              for (final barcode in capture.barcodes) {
-                final code = barcode.rawValue;
-                if (code != null && code.isNotEmpty) {
-                  Navigator.pop(ctx);
-                  _showAddModal(initialCode: code);
-                  break;
-                }
-              }
-            },
-          ),
-        ),
-      ),
-    );
+  // LEITOR DE TEXTO DA ETIQUETA (OCR) VIA CÂMERA
+  Future<void> _scanLabelText() async {
+    final XFile? image = await _picker.pickImage(source: ImageSource.camera);
+    if (image == null) return;
+
+    final inputImage = InputImage.fromFilePath(image.path);
+    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+
+    try {
+      final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
+      await textRecognizer.close();
+
+      String extractedAddress = '';
+      for (TextBlock block in recognizedText.blocks) {
+        for (TextLine line in block.lines) {
+          final text = line.text;
+          // Procura por termos de endereço na etiqueta
+          if (text.toLowerCase().contains('rua') ||
+              text.toLowerCase().contains('av') ||
+              text.toLowerCase().contains('alameda') ||
+              text.toLowerCase().contains('cep') ||
+              RegExp(r'\d{5}-\d{3}').hasMatch(text)) {
+            extractedAddress += '$text ';
+          }
+        }
+      }
+
+      if (extractedAddress.isEmpty && recognizedText.text.isNotEmpty) {
+        // Se não achou palavras-chave específicas, pega o texto principal detectado
+        extractedAddress = recognizedText.blocks.first.text.replaceAll('\n', ' ');
+      }
+
+      if (mounted) {
+        _showAddModal(initialCode: extractedAddress.trim());
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Não foi possível ler o texto da etiqueta. Tente novamente.')),
+        );
+      }
+    }
   }
 
   @override
@@ -649,7 +664,7 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
                             ),
                             const SizedBox(width: 8),
                             InkWell(
-                              onTap: _openCameraScanner,
+                              onTap: _scanLabelText, // Agora lê o texto/rua da etiqueta!
                               child: Container(
                                 width: 44,
                                 height: 44,
