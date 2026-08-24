@@ -1,5 +1,5 @@
 name: app_entregas
-description: App de Roteirizacao e Entregas
+description: "App de Entregas com GPS e Scanner"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,9 +9,16 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_map: ^6.1.0
-  latlong2: ^0.9.0
-  http: ^1.1.0
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  http: ^1.2.0
+  geolocator: ^13.0.1
+  mobile_scanner: ^5.2.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true
