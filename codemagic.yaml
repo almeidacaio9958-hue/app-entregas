@@ -1,0 +1,24 @@
+workflows:
+  android-workflow:
+    name: Build App Entregas
+    max_build_duration: 30
+    instance_type: mac_mini_m1
+    environment:
+      flutter: stable
+      java: 17
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+      - name: Build Android APK
+        script: |
+          flutter build apk --release
+    artifacts:
+      - build/**/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - almeidacaio9958@gmail.com
+        notify:
+          failure: true
+          success: true
