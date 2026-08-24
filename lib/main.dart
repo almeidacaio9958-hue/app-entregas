@@ -64,21 +64,12 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
   final List<Map<String, dynamic>> _listaParadas = [
     {
       'endereco': 'R. Joaquim Floriano, 834',
-      'bairro': 'Itaim Bibi, 04537-011',
+      'bairro': 'Itaim Bibi',
       'tipo': 'Pequeno',
       'pacote': 'Sacola',
       'latLng': const LatLng(-23.332000, -46.736000),
       'entregue': false,
       'horario': '09:00',
-    },
-    {
-      'endereco': 'R. Bandeira Paulista, 520',
-      'bairro': 'Itaim Bibi, 04537-011',
-      'tipo': 'Médio',
-      'pacote': 'Caixa',
-      'latLng': const LatLng(-23.340000, -46.742000),
-      'entregue': false,
-      'horario': '09:24',
     },
   ];
 
@@ -114,7 +105,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
         _posicaoAtual = LatLng(pos.latitude, pos.longitude);
       });
       _centralizarNoCarro(zoom: 16.0);
-      _recalcularRotaCompleta();
+      _otimizarE_RecalcularRota();
     } catch (_) {}
 
     const settings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 2);
@@ -135,16 +126,36 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
   }
 
   void _centralizarNoCarro({double zoom = 17.5}) {
-    // Offset para empurrar o veículo para a parte inferior da tela no modo direção
-    double offsetLat = 0.0;
-    if (_modoNavegacao) {
-      offsetLat = 0.0012; // Deixa o carro na parte de baixo para ver a rua à frente
-    }
+    double offsetLat = _modoNavegacao ? 0.0012 : 0.0;
     final centroAjustado = LatLng(_posicaoAtual.latitude + offsetLat, _posicaoAtual.longitude);
     _mapController.move(centroAjustado, zoom);
   }
 
-  Future<void> _recalcularRotaCompleta() async {
+  // OTIMIZADOR INTELIGENTE: Põe a parada mais próxima de você como a próxima da fila
+  void _ordenarParadasPorProximidade() {
+    final entregues = _listaParadas.where((p) => p['entregue'] == true).toList();
+    var pendentes = _listaParadas.where((p) => p['entregue'] == false).toList();
+
+    if (pendentes.length > 1) {
+      // Ordena as pendentes calculando a distância em linha reta até a posição atual do veículo
+      pendentes.sort((a, b) {
+        LatLng posA = a['latLng'];
+        LatLng posB = b['latLng'];
+        double distA = math.pow(posA.latitude - _posicaoAtual.latitude, 2) + math.pow(posA.longitude - _posicaoAtual.longitude, 2);
+        double distB = math.pow(posB.latitude - _posicaoAtual.latitude, 2) + math.pow(posB.longitude - _posicaoAtual.longitude, 2);
+        return distA.compareTo(distB);
+      });
+    }
+
+    setState(() {
+      _listaParadas.clear();
+      _listaParadas.addAll([...entregues, ...pendentes]);
+    });
+  }
+
+  Future<void> _otimizarE_RecalcularRota() async {
+    _ordenarParadasPorProximidade();
+
     final pendentes = _listaParadas.where((p) => !p['entregue']).toList();
     if (pendentes.isEmpty) {
       setState(() => _geometriaRota = []);
@@ -181,8 +192,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
         final formatChegada = '${chegada.hour.toString().padLeft(2, '0')}:${chegada.minute.toString().padLeft(2, '0')}';
 
         List<LatLng> pontos = coords.map((c) => LatLng(c[1], c[0])).toList();
-
-        // Garante que o ponto inicial seja a posição atual exata do GPS
         if (pontos.isNotEmpty) {
           pontos[0] = _posicaoAtual;
         }
@@ -222,7 +231,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
       _cardEntregaExpandido = true;
     });
 
-    // Pega o ponto de GPS mais preciso no momento do clique
     try {
       final pos = await Geolocator.getCurrentPosition();
       setState(() {
@@ -230,7 +238,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
       });
     } catch (_) {}
 
-    await _recalcularRotaCompleta();
+    await _otimizarE_RecalcularRota();
     _centralizarNoCarro(zoom: 18.0);
   }
 
@@ -249,7 +257,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lendo etiqueta e identificando destinatário...')),
+        const SnackBar(content: Text('Lendo etiqueta e otimizando parada...')),
       );
 
       final inputImage = InputImage.fromFilePath(foto.path);
@@ -280,7 +288,47 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
         enderecoFinal = 'Entrega CEP $cep';
       }
 
-      _confirmarAdicaoManual(enderecoFinal, cep);
+      // Evita duplicidade
+      bool jaExiste = _listaParadas.any((p) => 
+        (enderecoFinal.isNotEmpty && p['endereco'].toString().toLowerCase().contains(enderecoFinal.toLowerCase())) ||
+        (cep.isNotEmpty && p['bairro'].toString().contains(cep))
+      );
+
+      if (jaExiste) {
+        if (!mounted) return;
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Pacote já escaneado! 📦'),
+            content: Text('Este pacote ($enderecoFinal) já está na sua rota.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            ],
+          ),
+        );
+        return;
+      }
+
+      // Adiciona a nova parada direto na lista calculando uma coordenada próxima baseada na posição atual
+      setState(() {
+        _listaParadas.add({
+          'endereco': enderecoFinal.isNotEmpty ? enderecoFinal : 'Nova Entrega',
+          'bairro': cep.isNotEmpty ? 'CEP $cep' : 'São Paulo',
+          'tipo': 'Pequeno',
+          'pacote': 'Caixa',
+          'latLng': LatLng(_posicaoAtual.latitude + 0.003, _posicaoAtual.longitude + 0.003),
+          'entregue': false,
+          'horario': 'Previsão em breve',
+        });
+      });
+
+      // Recalcula ordenando para que este novo endereço vire o foco imediato
+      await _otimizarE_RecalcularRota();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pacote adicionado e rota otimizada! 🚀'), backgroundColor: Colors.green),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -289,74 +337,13 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     }
   }
 
-  void _confirmarAdicaoManual(String endereco, String cep) {
-    final ctrl = TextEditingController(text: endereco);
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-          top: 20,
-          left: 20,
-          right: 20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Confirmar Parada', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: ctrl,
-              decoration: InputDecoration(
-                labelText: 'Endereço',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  setState(() {
-                    _listaParadas.add({
-                      'endereco': ctrl.text.trim(),
-                      'bairro': 'São Paulo',
-                      'tipo': 'Pequeno',
-                      'pacote': 'Caixa',
-                      'latLng': LatLng(_posicaoAtual.latitude + 0.004, _posicaoAtual.longitude + 0.004),
-                      'entregue': false,
-                      'horario': '10:15',
-                    });
-                  });
-                  _recalcularRotaCompleta();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1A73E8),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Text('Adicionar à Rota', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-            )
-          ],
-        ),
-      ),
-    );
-  }
-
   void _finalizarParadaAtual(bool sucesso) {
     final index = _listaParadas.indexWhere((p) => !p['entregue']);
     if (index != -1) {
       setState(() {
         _listaParadas[index]['entregue'] = true;
       });
-      _recalcularRotaCompleta();
+      _otimizarE_RecalcularRota();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(sucesso ? 'Entrega concluída com sucesso! ✅' : 'Tentativa registrada como falha ❌'),
@@ -376,7 +363,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     final concluidas = _listaParadas.where((p) => p['entregue']).length;
     final paradaAtualNum = math.min(totalParadas, concluidas + 1);
 
-    // Marcador Navegador/Veículo
     final markerCarro = Marker(
       point: _posicaoAtual,
       width: 60,
@@ -410,7 +396,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
       ),
     );
 
-    // Marcadores Paradas numeradas
     final markersParadas = _listaParadas.asMap().entries.map((entry) {
       final idx = entry.key;
       final parada = entry.value;
@@ -448,7 +433,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     return Scaffold(
       body: Stack(
         children: [
-          // 1. MAPA COM CAMADA DO GOOGLE MAPS
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -462,7 +446,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                 userAgentPackageName: 'com.google.android.apps.maps',
               ),
               if (_geometriaRota.isNotEmpty) ...[
-                // Borda externa mais escura da rota
                 PolylineLayer(
                   polylines: [
                     Polyline(
@@ -472,7 +455,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                     ),
                   ],
                 ),
-                // Linha interna azul vibrante
                 PolylineLayer(
                   polylines: [
                     Polyline(
@@ -487,7 +469,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
             ],
           ),
 
-          // 2. MODO NAVEGAÇÃO: Placa Superior Escura
           if (_modoNavegacao)
             Positioned(
               top: 40,
@@ -537,7 +518,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
               ),
             ),
 
-          // 3. Botões Flutuantes Laterais
           Positioned(
             right: 16,
             bottom: _modoNavegacao ? (_cardEntregaExpandido ? 240 : 90) : 340,
@@ -554,7 +534,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
             ),
           ),
 
-          // Velocímetro (km/h)
           Positioned(
             left: 16,
             bottom: _modoNavegacao ? (_cardEntregaExpandido ? 240 : 90) : 340,
@@ -577,7 +556,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
             ),
           ),
 
-          // 4. MODO NAVEGAÇÃO: Card de Entrega e Barra Inferior
           if (_modoNavegacao)
             Positioned(
               left: 0,
@@ -690,7 +668,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
               ),
             ),
 
-          // 5. MODO LISTA / OTIMIZE (Painel de Paradas)
           if (!_modoNavegacao)
             DraggableScrollableSheet(
               initialChildSize: 0.38,
@@ -711,8 +688,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                         child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(10))),
                       ),
                       const SizedBox(height: 14),
-
-                      // Barra de Busca e Ações
                       Row(
                         children: [
                           Expanded(
@@ -738,11 +713,9 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                         ],
                       ),
                       const SizedBox(height: 14),
-
                       Text('Término $_previsaoChegada • $totalParadas paradas • $_distanciaFormatada', style: const TextStyle(color: Colors.grey, fontSize: 12)),
                       const Text('São Paulo / Franco da Rocha', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 12),
-
                       Row(
                         children: [
                           Expanded(
@@ -773,8 +746,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                         ],
                       ),
                       const Divider(height: 28),
-
-                      // Lista com Timeline
                       ..._listaParadas.asMap().entries.map((entry) {
                         final i = entry.key;
                         final p = entry.value;
