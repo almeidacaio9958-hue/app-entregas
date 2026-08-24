@@ -86,7 +86,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
   void initState() {
     super.initState();
     _iniciarGpsNativo();
-    _recalcularRotaCompleta();
   }
 
   @override
@@ -108,17 +107,21 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     if (permission == LocationPermission.deniedForever) return;
 
     try {
-      final pos = await Geolocator.getCurrentPosition();
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      );
       setState(() {
         _posicaoAtual = LatLng(pos.latitude, pos.longitude);
       });
-      _mapController.move(_posicaoAtual, 16.0);
+      _centralizarNoCarro(zoom: 16.0);
+      _recalcularRotaCompleta();
     } catch (_) {}
 
     const settings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 2);
     _streamPosicao = Geolocator.getPositionStream(locationSettings: settings).listen((Position pos) {
+      final novaPos = LatLng(pos.latitude, pos.longitude);
       setState(() {
-        _posicaoAtual = LatLng(pos.latitude, pos.longitude);
+        _posicaoAtual = novaPos;
         _velocidadeKmH = math.max(0.0, (pos.speed * 3.6));
         if (pos.heading != 0) {
           _anguloDirecao = pos.heading * (math.pi / 180.0);
@@ -126,9 +129,19 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
       });
 
       if (_modoNavegacao) {
-        _mapController.moveAndRotate(_posicaoAtual, 17.5, pos.heading != 0 ? -pos.heading : 0.0);
+        _centralizarNoCarro(zoom: 18.0);
       }
     });
+  }
+
+  void _centralizarNoCarro({double zoom = 17.5}) {
+    // Offset para empurrar o veículo para a parte inferior da tela no modo direção
+    double offsetLat = 0.0;
+    if (_modoNavegacao) {
+      offsetLat = 0.0012; // Deixa o carro na parte de baixo para ver a rua à frente
+    }
+    final centroAjustado = LatLng(_posicaoAtual.latitude + offsetLat, _posicaoAtual.longitude);
+    _mapController.move(centroAjustado, zoom);
   }
 
   Future<void> _recalcularRotaCompleta() async {
@@ -140,6 +153,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
 
     setState(() => _calculando = true);
     final destino = pendentes.first['latLng'] as LatLng;
+
     final url = Uri.parse(
       'https://router.project-osrm.org/route/v1/driving/'
       '${_posicaoAtual.longitude},${_posicaoAtual.latitude};'
@@ -166,8 +180,15 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
         final chegada = agora.add(Duration(seconds: duracaoSegundos.round()));
         final formatChegada = '${chegada.hour.toString().padLeft(2, '0')}:${chegada.minute.toString().padLeft(2, '0')}';
 
+        List<LatLng> pontos = coords.map((c) => LatLng(c[1], c[0])).toList();
+
+        // Garante que o ponto inicial seja a posição atual exata do GPS
+        if (pontos.isNotEmpty) {
+          pontos[0] = _posicaoAtual;
+        }
+
         setState(() {
-          _geometriaRota = coords.map((c) => LatLng(c[1], c[0])).toList();
+          _geometriaRota = pontos;
           _distanciaFormatada = '${(distanciaMetros / 1000).toStringAsFixed(2)} km';
           _tempoRestante = '${(duracaoSegundos / 60).round()} min';
           _previsaoChegada = formatChegada;
@@ -195,19 +216,29 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     }
   }
 
-  void _iniciarModoDirecao() {
+  void _iniciarModoDirecao() async {
     setState(() {
       _modoNavegacao = true;
       _cardEntregaExpandido = true;
     });
-    _mapController.moveAndRotate(_posicaoAtual, 17.5, -(_anguloDirecao * 180 / math.pi));
+
+    // Pega o ponto de GPS mais preciso no momento do clique
+    try {
+      final pos = await Geolocator.getCurrentPosition();
+      setState(() {
+        _posicaoAtual = LatLng(pos.latitude, pos.longitude);
+      });
+    } catch (_) {}
+
+    await _recalcularRotaCompleta();
+    _centralizarNoCarro(zoom: 18.0);
   }
 
   void _sairModoDirecao() {
     setState(() {
       _modoNavegacao = false;
     });
-    _mapController.moveAndRotate(_posicaoAtual, 15.5, 0.0);
+    _mapController.move(_posicaoAtual, 15.5);
   }
 
   Future<void> _escanearEtiquetaOCR() async {
@@ -356,21 +387,21 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
           alignment: Alignment.center,
           children: [
             Container(
-              width: 50,
-              height: 50,
+              width: 52,
+              height: 52,
               decoration: BoxDecoration(
-                color: Colors.blue.withValues(alpha: 0.18),
+                color: const Color(0xFF1A73E8).withValues(alpha: 0.22),
                 shape: BoxShape.circle,
               ),
             ),
             Container(
-              width: 32,
-              height: 32,
+              width: 34,
+              height: 34,
               decoration: BoxDecoration(
                 color: const Color(0xFF1A73E8),
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 3),
-                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2))],
+                boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6, offset: Offset(0, 2))],
               ),
               child: const Icon(Icons.navigation, color: Colors.white, size: 18),
             ),
@@ -417,12 +448,12 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     return Scaffold(
       body: Stack(
         children: [
-          // 1. MAPA COM CAMADA DO GOOGLE MAPS (GRATUITA / SEM CHAVE)
+          // 1. MAPA COM CAMADA DO GOOGLE MAPS
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
               initialCenter: _posicaoAtual,
-              initialZoom: 15.5,
+              initialZoom: 16.0,
             ),
             children: [
               TileLayer(
@@ -430,21 +461,33 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                 subdomains: const ['0', '1', '2', '3'],
                 userAgentPackageName: 'com.google.android.apps.maps',
               ),
-              if (_geometriaRota.isNotEmpty)
+              if (_geometriaRota.isNotEmpty) ...[
+                // Borda externa mais escura da rota
                 PolylineLayer(
                   polylines: [
                     Polyline(
                       points: _geometriaRota,
-                      color: const Color(0xFF1A73E8),
-                      strokeWidth: _modoNavegacao ? 7.0 : 5.0,
+                      color: const Color(0xFF0D47A1),
+                      strokeWidth: _modoNavegacao ? 8.5 : 6.5,
                     ),
                   ],
                 ),
+                // Linha interna azul vibrante
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _geometriaRota,
+                      color: const Color(0xFF2979FF),
+                      strokeWidth: _modoNavegacao ? 6.0 : 4.5,
+                    ),
+                  ],
+                ),
+              ],
               MarkerLayer(markers: [markerCarro, ...markersParadas]),
             ],
           ),
 
-          // 2. MODO NAVEGAÇÃO: Placa Superior
+          // 2. MODO NAVEGAÇÃO: Placa Superior Escura
           if (_modoNavegacao)
             Positioned(
               top: 40,
@@ -505,7 +548,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                 }, corIcone: Colors.blueAccent),
                 const SizedBox(height: 10),
                 _botaoCircular(Icons.navigation, () {
-                  _mapController.moveAndRotate(_posicaoAtual, 17.5, _modoNavegacao ? -(_anguloDirecao * 180 / math.pi) : 0.0);
+                  _centralizarNoCarro(zoom: _modoNavegacao ? 18.0 : 16.5);
                 }, corIcone: const Color(0xFF1A73E8)),
               ],
             ),
@@ -534,7 +577,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
             ),
           ),
 
-          // 4. MODO NAVEGAÇÃO: Card de Entrega e Barra Preta Inferior
+          // 4. MODO NAVEGAÇÃO: Card de Entrega e Barra Inferior
           if (_modoNavegacao)
             Positioned(
               left: 0,
