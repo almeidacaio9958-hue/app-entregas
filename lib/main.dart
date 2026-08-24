@@ -7,7 +7,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
@@ -191,6 +190,7 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
   List<LatLng> _routePoints = [];
   String _lastRouteHash = '';
   final ImagePicker _picker = ImagePicker();
+  bool _isProcessingImage = false;
 
   @override
   void initState() {
@@ -336,14 +336,14 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Adicionar Endereço Lido da Etiqueta',
+                'Confirmar Destino do Pacote',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF202124)),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: addressCtrl,
                 decoration: const InputDecoration(
-                  labelText: 'Rua e Número ou CEP do Pacote',
+                  labelText: 'Destino Lido da Etiqueta',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.location_on),
                 ),
@@ -394,7 +394,7 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      child: const Text('Salvar na Rota', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: const Text('Adicionar à Rota', style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
             ],
           ),
@@ -403,46 +403,68 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
     );
   }
 
-  // LEITOR DE TEXTO DA ETIQUETA (OCR) VIA CÂMERA
-  Future<void> _scanLabelText() async {
-    final XFile? image = await _picker.pickImage(source: ImageSource.camera);
+  // LEITOR DE ETIQUETA VIA CÂMERA (OCR Rápido)
+  Future<void> _scanDestinationLabel() async {
+    final XFile? image = await _picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 85,
+      maxWidth: 1200,
+    );
     if (image == null) return;
 
-    final inputImage = InputImage.fromFilePath(image.path);
-    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    setState(() => _isProcessingImage = true);
 
     try {
-      final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
-      await textRecognizer.close();
+      final bytes = await image.readAsBytes();
+      final base64Image = 'data:image/jpeg;base64,${base64Encode(bytes)}';
 
-      String extractedAddress = '';
-      for (TextBlock block in recognizedText.blocks) {
-        for (TextLine line in block.lines) {
-          final text = line.text;
-          // Procura por termos de endereço na etiqueta
-          if (text.toLowerCase().contains('rua') ||
-              text.toLowerCase().contains('av') ||
-              text.toLowerCase().contains('alameda') ||
-              text.toLowerCase().contains('cep') ||
-              RegExp(r'\d{5}-\d{3}').hasMatch(text)) {
-            extractedAddress += '$text ';
-          }
+      final response = await http.post(
+        Uri.parse('https://api.ocr.space/parse/image'),
+        body: {
+          'apikey': 'helloworld',
+          'language': 'por',
+          'base64Image': base64Image,
+        },
+      );
+
+      String parsedText = '';
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['ParsedResults'] != null && data['ParsedResults'].isNotEmpty) {
+          parsedText = data['ParsedResults'][0]['ParsedText'] ?? '';
         }
       }
 
-      if (extractedAddress.isEmpty && recognizedText.text.isNotEmpty) {
-        // Se não achou palavras-chave específicas, pega o texto principal detectado
-        extractedAddress = recognizedText.blocks.first.text.replaceAll('\n', ' ');
+      String destination = '';
+      bool targetFound = false;
+
+      for (var line in parsedText.split('\n')) {
+        final lower = line.toLowerCase().trim();
+        if (lower.contains('destino') || lower.contains('endereço') || lower.contains('destinatario')) {
+          targetFound = true;
+          destination = '';
+          continue;
+        }
+        if (targetFound || lower.contains('rua') || lower.contains('av') || lower.contains('alameda') || RegExp(r'\d{5}-\d{3}').hasMatch(line)) {
+          destination += '$line ';
+        }
+      }
+
+      if (destination.trim().isEmpty && parsedText.trim().isNotEmpty) {
+        destination = parsedText.split('\n').take(3).join(' ');
       }
 
       if (mounted) {
-        _showAddModal(initialCode: extractedAddress.trim());
+        setState(() => _isProcessingImage = false);
+        _showAddModal(initialCode: destination.trim());
       }
     } catch (_) {
       if (mounted) {
+        setState(() => _isProcessingImage = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Não foi possível ler o texto da etiqueta. Tente novamente.')),
+          const SnackBar(content: Text('Falha ao processar foto. Digite manualmente.')),
         );
+        _showAddModal();
       }
     }
   }
@@ -572,6 +594,26 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
                   MarkerLayer(markers: markers),
                 ],
               ),
+              if (_isProcessingImage)
+                Container(
+                  color: Colors.black45,
+                  child: const Center(
+                    child: Card(
+                      color: Colors.white,
+                      child: Padding(
+                        padding: EdgeInsets.all(20.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 12),
+                            Text('Lendo destino da etiqueta...'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               Positioned(
                 right: 16,
                 bottom: 370,
@@ -664,7 +706,7 @@ class _OtimizeHomeScreenState extends State<OtimizeHomeScreen> {
                             ),
                             const SizedBox(width: 8),
                             InkWell(
-                              onTap: _scanLabelText, // Agora lê o texto/rua da etiqueta!
+                              onTap: _scanDestinationLabel,
                               child: Container(
                                 width: 44,
                                 height: 44,
