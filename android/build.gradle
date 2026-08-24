@@ -9,18 +9,6 @@ rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
-
-subprojects { project ->
-    project.plugins.whenPluginAdded { plugin ->
-        if (plugin.class.name.startsWith("com.android.build.gradle")) {
-            project.android {
-                compileSdkVersion 36
-                buildToolsVersion "35.0.0"
-            }
-        }
-    }
-}
-
 subprojects {
     project.evaluationDependsOn(':app')
 }
