@@ -10,7 +10,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'url_launcher_stub.dart' if (dart.library.html) 'url_launcher_web.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
@@ -36,7 +35,6 @@ class AppEntregasProfissional extends StatelessWidget {
   }
 }
 
-// TELA DE CONTROLE DE ASSINATURA E TESTE GRÁTIS DE 7 DIAS
 class TelaVerificacaoAssinatura extends StatefulWidget {
   const TelaVerificacaoAssinatura({super.key});
 
@@ -47,7 +45,6 @@ class TelaVerificacaoAssinatura extends StatefulWidget {
 class _TelaVerificacaoAssinaturaState extends State<TelaVerificacaoAssinatura> {
   bool _carregando = true;
   bool _ativo = false;
-  int _diasRestantes = 7;
 
   @override
   void initState() {
@@ -58,7 +55,6 @@ class _TelaVerificacaoAssinaturaState extends State<TelaVerificacaoAssinatura> {
   Future<void> _verificarStatusAssinatura() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // Verifica se o usuário já inseriu um código de ativação pago
     bool assinaturaPaga = prefs.getBool('assinatura_paga') ?? false;
     if (assinaturaPaga) {
       setState(() {
@@ -68,7 +64,6 @@ class _TelaVerificacaoAssinaturaState extends State<TelaVerificacaoAssinatura> {
       return;
     }
 
-    // Controle do Teste Grátis de 7 Dias
     int? primeiraInstalacao = prefs.getInt('primeira_instalacao');
     final agora = DateTime.now().millisecondsSinceEpoch;
 
@@ -84,13 +79,11 @@ class _TelaVerificacaoAssinaturaState extends State<TelaVerificacaoAssinatura> {
     if (diasRestantesCalculado <= 0) {
       setState(() {
         _ativo = false;
-        _diasRestantes = 0;
         _carregando = false;
       });
     } else {
       setState(() {
         _ativo = true;
-        _diasRestantes = diasRestantesCalculado;
         _carregando = false;
       });
     }
@@ -130,7 +123,7 @@ class _TelaVerificacaoAssinaturaState extends State<TelaVerificacaoAssinatura> {
               ),
               const SizedBox(height: 10),
               const Text(
-                'Seu teste grátis de 7 dias acabou. Para continuar economizando tempo e combustível nas suas entregas, assine por apenas R$ 20/mês.',
+                'Seu teste grátis de 7 dias acabou. Para continuar economizando tempo e combustível nas suas entregas, assine por apenas R\$ 20/mês.',
                 style: TextStyle(color: Colors.white70, fontSize: 14),
                 textAlign: TextAlign.center,
               ),
@@ -147,13 +140,12 @@ class _TelaVerificacaoAssinaturaState extends State<TelaVerificacaoAssinatura> {
                     const Text('Chave Pix (E-mail / CPF):', style: TextStyle(color: Colors.white60, fontSize: 12)),
                     const SizedBox(height: 6),
                     const Text(
-                      'seu-email@provedor.com', // Substitua pela sua chave Pix real
+                      'seu-email@provedor.com',
                       style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 12),
                     ElevatedButton.icon(
                       onPressed: () {
-                        // Simulação de liberação rápida para testes
                         _ativarComCodigoTeste();
                       },
                       icon: const Icon(Icons.check),
@@ -400,7 +392,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     _mapController.move(_posicaoAtual, 15.5);
   }
 
-  // NOVO RECURSO: ACHAR PACOTE NO PORTA-MALAS (Escaneia e acha qual parada é)
   Future<void> _acharPacoteNoPortaMalas() async {
     await Permission.camera.request();
     try {
@@ -416,11 +407,9 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
       final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
       String textoLido = recognizedText.text.toLowerCase();
 
-      // Procura na lista qual parada corresponde ao texto lido na etiqueta
       int indiceEncontrado = -1;
       for (int i = 0; i < _listaParadas.length; i++) {
         String enderecoParada = _listaParadas[i]['endereco'].toString().toLowerCase();
-        // Verifica se trecho do endereço ou CEP bate com o texto escaneado
         if (textoLido.contains(enderecoParada) || (_listaParadas[i]['bairro'] != null && textoLido.contains(_listaParadas[i]['bairro'].toString().toLowerCase()))) {
           indiceEncontrado = i;
           break;
@@ -439,7 +428,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
               TextButton(
                 onPressed: () {
                   Navigator.pop(ctx);
-                  // Centraliza o mapa na parada encontrada
                   _mapController.move(_listaParadas[indiceEncontrado]['latLng'], 17.0);
                 },
                 child: const Text('Ver no Mapa'),
@@ -448,7 +436,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
           ),
         );
       } else {
-        // Fallback genérico caso não ache o nome exato mas leia o texto
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -739,7 +726,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
             bottom: _modoNavegacao ? (_cardEntregaExpandido ? 240 : 90) : 340,
             child: Column(
               children: [
-                _botaoCircular(Icons.inventory_2, _acharPacoteNoPortaMalas, corIcone: Colors.orange), // Botão Achar Pacote
+                _botaoCircular(Icons.inventory_2, _acharPacoteNoPortaMalas, corIcone: Colors.orange),
                 const SizedBox(height: 10),
                 _botaoCircular(Icons.directions, () {
                   _abrirNoGoogleMapsExterno(paradaAtiva['latLng'] as LatLng);
