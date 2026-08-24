@@ -166,20 +166,55 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
         _adicionarParadaEscaneada(resultado);
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Permissão de câmera é necessária para escanear pacotes.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _mostrarDialogoManual('Permissão de câmera não concedida. Digite o código:');
     }
+  }
+
+  void _mostrarDialogoManual([String? mensagem]) {
+    final textController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Adicionar Pacote Manual'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (mensagem != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: Text(mensagem, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              ),
+            TextField(
+              controller: textController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Digite o código ou endereço',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () {
+              if (textController.text.trim().isNotEmpty) {
+                Navigator.pop(ctx);
+                _adicionarParadaEscaneada(textController.text.trim());
+              }
+            },
+            child: const Text('Adicionar'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _adicionarParadaEscaneada(String codigoLido) {
     setState(() {
       _paradas.add({
-        'endereco': 'Entrega #Scan: $codigoLido',
-        'latLng': LatLng(_posicaoVeiculo.latitude + 0.004, _posicaoVeiculo.longitude + 0.004),
+        'endereco': 'Entrega #$codigoLido',
+        'latLng': LatLng(_posicaoVeiculo.latitude + 0.003, _posicaoVeiculo.longitude + 0.003),
         'entregue': false,
       });
     });
@@ -587,26 +622,119 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
   }
 }
 
-class TelaLeitorScanner extends StatelessWidget {
+class TelaLeitorScanner extends StatefulWidget {
   const TelaLeitorScanner({super.key});
+
+  @override
+  State<TelaLeitorScanner> createState() => _TelaLeitorScannerState();
+}
+
+class _TelaLeitorScannerState extends State<TelaLeitorScanner> {
+  final MobileScannerController _controller = MobileScannerController(
+    facing: CameraFacing.back,
+    torchEnabled: false,
+  );
+  bool _jaDetectou = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _digitarManual() {
+    final textEdit = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Digitar Código'),
+        content: TextField(
+          controller: textEdit,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Código do pacote',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () {
+              if (textEdit.text.trim().isNotEmpty) {
+                Navigator.pop(ctx);
+                Navigator.pop(context, textEdit.text.trim());
+              }
+            },
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Escanear Pacote / Etiqueta'),
+        title: const Text('Escanear Pacote'),
         backgroundColor: Colors.teal,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flash_on),
+            onPressed: () => _controller.toggleTorch(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit_note, size: 28),
+            tooltip: 'Digitar manualmente',
+            onPressed: _digitarManual,
+          ),
+        ],
       ),
       body: Stack(
         alignment: Alignment.center,
         children: [
           MobileScanner(
+            controller: _controller,
+            errorBuilder: (context, error, child) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.camera_alt_outlined, color: Colors.orange, size: 55),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Aguardando inicialização da câmera...\n(${error.errorCode.name})',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: () => _controller.start(),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Recarregar Câmera'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
+                      ),
+                      const SizedBox(height: 10),
+                      TextButton.icon(
+                        onPressed: _digitarManual,
+                        icon: const Icon(Icons.keyboard, color: Colors.greenAccent),
+                        label: const Text('Digitar código do pacote', style: TextStyle(color: Colors.greenAccent)),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
             onDetect: (capture) {
+              if (_jaDetectou) return;
               final barcodes = capture.barcodes;
               for (final barcode in barcodes) {
                 if (barcode.rawValue != null && barcode.rawValue!.isNotEmpty) {
+                  _jaDetectou = true;
                   Navigator.pop(context, barcode.rawValue);
                   break;
                 }
@@ -621,17 +749,32 @@ class TelaLeitorScanner extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
             ),
           ),
-          const Positioned(
-            bottom: 40,
-            child: Card(
-              color: Colors.black87,
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Text(
-                  'Aponte para o código de barras ou QR Code',
-                  style: TextStyle(color: Colors.white, fontSize: 14),
+          Positioned(
+            bottom: 30,
+            child: Column(
+              children: [
+                const Card(
+                  color: Colors.black87,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Text(
+                      'Aponte para o código de barras ou QR Code',
+                      style: TextStyle(color: Colors.white, fontSize: 13),
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: _digitarManual,
+                  icon: const Icon(Icons.keyboard, size: 18),
+                  label: const Text('Digitar código manualmente'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
