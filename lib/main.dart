@@ -30,11 +30,133 @@ class AppEntregasProfissional extends StatelessWidget {
         colorSchemeSeed: const Color(0xFF1A73E8),
         scaffoldBackgroundColor: const Color(0xFFF1F4F9),
       ),
-      home: const TelaVerificacaoAssinatura(),
+      home: const TelaLogin(),
     );
   }
 }
 
+// 1. TELA DE LOGIN / CADASTRO
+class TelaLogin extends StatefulWidget {
+  const TelaLogin({super.key});
+
+  @override
+  State<TelaLogin> createState() => _TelaLoginState();
+}
+
+class _TelaLoginState extends State<TelaLogin> {
+  final _emailController = TextEditingController();
+  final _senhaController = TextEditingController();
+  bool _carregando = false;
+
+  void _fazerLogin() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Por favor, digite seu e-mail ou celular'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _carregando = true);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('usuario_logado', email);
+
+    // Salva a data de instalação caso seja o primeiro login
+    if (prefs.getInt('primeira_instalacao') == null) {
+      await prefs.setInt('primeira_instalacao', DateTime.now().millisecondsSinceEpoch);
+    }
+
+    await Future.delayed(const Duration(seconds: 1)); // Pequeno delay simulando requisição
+
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const TelaVerificacaoAssinatura()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF181F2C),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A73E8),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Icon(Icons.navigation, size: 50, color: Colors.white),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Circuito Entregas',
+                style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Faça login para salvar suas rotas e acessar em qualquer celular',
+                style: TextStyle(color: Colors.white70, fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 35),
+              TextField(
+                controller: _emailController,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'E-mail ou WhatsApp',
+                  labelStyle: const TextStyle(color: Colors.white70),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.08),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                  prefixIcon: const Icon(Icons.person_outline, color: Colors.white70),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _senhaController,
+                obscureText: true,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Senha',
+                  labelStyle: const TextStyle(color: Colors.white70),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.08),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                  prefixIcon: const Icon(Icons.lock_outline, color: Colors.white70),
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _carregando ? null : _fazerLogin,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1A73E8),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: _carregando
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text('Entrar / Cadastrar', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// 2. TELA DE CONTROLE DE ASSINATURA E TESTE GRÁTIS DE 7 DIAS
 class TelaVerificacaoAssinatura extends StatefulWidget {
   const TelaVerificacaoAssinatura({super.key});
 
@@ -179,6 +301,7 @@ class _TelaVerificacaoAssinaturaState extends State<TelaVerificacaoAssinatura> {
   }
 }
 
+// 3. TELA PRINCIPAL DE NAVEGAÇÃO E ROTAS
 class TelaPrincipalNavegacao extends StatefulWidget {
   const TelaPrincipalNavegacao({super.key});
 
