@@ -1,5 +1,5 @@
 name: app_entregas
-description: "App de Circuito de Entregas"
+description: "App de Circuito de Entregas - Otimize"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -17,6 +17,7 @@ dependencies:
   geolocator: ^10.1.0
   mobile_scanner: ^5.1.1
   url_launcher: ^6.2.2
+  http: ^1.2.0
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
@@ -26,3 +27,4 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  
