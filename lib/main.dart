@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   runApp(const AppEntregasProfissional());
@@ -79,15 +80,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
       'entregue': false,
       'horario': '09:24',
     },
-    {
-      'endereco': 'R. Clodomiro Amazonas, 719',
-      'bairro': 'Vila Nova Conceição',
-      'tipo': 'Pequeno',
-      'pacote': 'Envelope',
-      'latLng': const LatLng(-23.348000, -46.750000),
-      'entregue': false,
-      'horario': '09:45',
-    },
   ];
 
   @override
@@ -133,7 +125,6 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
         }
       });
 
-      // No modo direção, mantém a visão centrada e rotacionada com o carro
       if (_modoNavegacao) {
         _mapController.moveAndRotate(_posicaoAtual, 17.5, pos.heading != 0 ? -pos.heading : 0.0);
       }
@@ -151,7 +142,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     final destino = pendentes.first['latLng'] as LatLng;
     final url = Uri.parse(
       'https://router.project-osrm.org/route/v1/driving/'
-      '${_posicaoAtual.longitude},${_posicaoVeiculoLongitudeFix(_posicaoAtual.latitude)};'
+      '${_posicaoAtual.longitude},${_posicaoAtual.latitude};'
       '${destino.longitude},${destino.latitude}'
       '?overview=full&geometries=geojson&steps=true',
     );
@@ -189,7 +180,20 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     }
   }
 
-  double _posicaoVeiculoLongitudeFix(double lat) => _posicaoAtual.latitude;
+  void _abrirNoGoogleMapsExterno(LatLng destino) async {
+    final url = Uri.parse('google.navigation:q=${destino.latitude},${destino.longitude}&mode=d');
+    final fallbackUrl = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=${destino.latitude},${destino.longitude}');
+
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url);
+      } else {
+        await launchUrl(fallbackUrl, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      await launchUrl(fallbackUrl, mode: LaunchMode.externalApplication);
+    }
+  }
 
   void _iniciarModoDirecao() {
     setState(() {
@@ -335,7 +339,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
   Widget build(BuildContext context) {
     final paradaAtiva = _listaParadas.firstWhere(
       (p) => !p['entregue'],
-      orElse: () => {'endereco': 'Sem entregas pendentes', 'tipo': '-', 'pacote': '-'},
+      orElse: () => {'endereco': 'Sem entregas pendentes', 'tipo': '-', 'pacote': '-', 'latLng': _posicaoAtual},
     );
     final totalParadas = _listaParadas.length;
     final concluidas = _listaParadas.where((p) => p['entregue']).length;
@@ -413,21 +417,18 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     return Scaffold(
       body: Stack(
         children: [
-          // 1. MAPA BASE
+          // 1. MAPA COM CAMADA DO GOOGLE MAPS (GRATUITA / SEM CHAVE)
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
               initialCenter: _posicaoAtual,
               initialZoom: 15.5,
-              onPositionChanged: (pos, hasGesture) {
-                // Permite arrastar e mover livremente o mapa
-              },
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-                subdomains: const ['a', 'b', 'c', 'd'],
-                userAgentPackageName: 'com.circuit.app_entregas',
+                urlTemplate: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+                subdomains: const ['0', '1', '2', '3'],
+                userAgentPackageName: 'com.google.android.apps.maps',
               ),
               if (_geometriaRota.isNotEmpty)
                 PolylineLayer(
@@ -496,12 +497,12 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
           // 3. Botões Flutuantes Laterais
           Positioned(
             right: 16,
-            bottom: _modoNavegacao ? (_cardEntregaExpandido ? 230 : 90) : 340,
+            bottom: _modoNavegacao ? (_cardEntregaExpandido ? 240 : 90) : 340,
             child: Column(
               children: [
-                _botaoCircular(Icons.settings_outlined, () {}),
-                const SizedBox(height: 10),
-                _botaoCircular(Icons.layers_outlined, () {}),
+                _botaoCircular(Icons.directions, () {
+                  _abrirNoGoogleMapsExterno(paradaAtiva['latLng'] as LatLng);
+                }, corIcone: Colors.blueAccent),
                 const SizedBox(height: 10),
                 _botaoCircular(Icons.navigation, () {
                   _mapController.moveAndRotate(_posicaoAtual, 17.5, _modoNavegacao ? -(_anguloDirecao * 180 / math.pi) : 0.0);
@@ -513,7 +514,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
           // Velocímetro (km/h)
           Positioned(
             left: 16,
-            bottom: _modoNavegacao ? (_cardEntregaExpandido ? 230 : 90) : 340,
+            bottom: _modoNavegacao ? (_cardEntregaExpandido ? 240 : 90) : 340,
             child: Container(
               width: 54,
               height: 54,
@@ -703,9 +704,13 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: () {},
-                              icon: const Icon(Icons.share_outlined, size: 16),
-                              label: const Text('Compartilhar rota', style: TextStyle(fontSize: 12)),
+                              onPressed: () {
+                                if (_listaParadas.isNotEmpty) {
+                                  _abrirNoGoogleMapsExterno(_listaParadas.first['latLng']);
+                                }
+                              },
+                              icon: const Icon(Icons.map, size: 16),
+                              label: const Text('Abrir Maps', style: TextStyle(fontSize: 12)),
                               style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                             ),
                           ),
@@ -771,7 +776,10 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                                   ),
                                 ),
                               ),
-                              Text(p['horario'], style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                              IconButton(
+                                icon: const Icon(Icons.directions, color: Color(0xFF1A73E8), size: 20),
+                                onPressed: () => _abrirNoGoogleMapsExterno(p['latLng']),
+                              ),
                             ],
                           ),
                         );
