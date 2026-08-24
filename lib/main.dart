@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   runApp(const AppNavegadorTempoReal());
@@ -152,13 +153,25 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
   }
 
   void _abrirCameraScan() async {
-    final resultado = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (context) => const TelaLeitorScanner()),
-    );
+    final status = await Permission.camera.request();
+    if (!mounted) return;
 
-    if (resultado != null && resultado.isNotEmpty) {
-      _adicionarParadaEscaneada(resultado);
+    if (status.isGranted) {
+      final resultado = await Navigator.push<String>(
+        context,
+        MaterialPageRoute(builder: (context) => const TelaLeitorScanner()),
+      );
+
+      if (resultado != null && resultado.isNotEmpty) {
+        _adicionarParadaEscaneada(resultado);
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Permissão de câmera é necessária para escanear pacotes.'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -173,7 +186,7 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
     _buscarRotaRealPelasVias();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Pacote $codigoLido adicionado à rota!'),
+        content: Text('Pacote $codigoLido adicionado!'),
         backgroundColor: Colors.green,
       ),
     );
@@ -574,43 +587,8 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
   }
 }
 
-class TelaLeitorScanner extends StatefulWidget {
+class TelaLeitorScanner extends StatelessWidget {
   const TelaLeitorScanner({super.key});
-
-  @override
-  State<TelaLeitorScanner> createState() => _TelaLeitorScannerState();
-}
-
-class _TelaLeitorScannerState extends State<TelaLeitorScanner> with WidgetsBindingObserver {
-  late MobileScannerController _controller;
-  bool _jaDetectou = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _controller = MobileScannerController(
-      detectionSpeed: DetectionSpeed.noDuplicates,
-      autoStart: true,
-    );
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!mounted) return;
-    if (state == AppLifecycleState.resumed) {
-      _controller.start();
-    } else if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
-      _controller.stop();
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _controller.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -620,57 +598,15 @@ class _TelaLeitorScannerState extends State<TelaLeitorScanner> with WidgetsBindi
         title: const Text('Escanear Pacote / Etiqueta'),
         backgroundColor: Colors.teal,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.flash_on),
-            onPressed: () => _controller.toggleTorch(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.cameraswitch),
-            onPressed: () => _controller.switchCamera(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => _controller.start(),
-          ),
-        ],
       ),
       body: Stack(
         alignment: Alignment.center,
         children: [
           MobileScanner(
-            controller: _controller,
-            errorBuilder: (context, error, child) {
-              return Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.videocam_off, color: Colors.orange, size: 50),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Inicializando a câmera...',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                    const SizedBox(height: 12),
-                    ElevatedButton.icon(
-                      onPressed: () => _controller.start(),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Tentar novamente'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.teal,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
             onDetect: (capture) {
-              if (_jaDetectou) return;
               final barcodes = capture.barcodes;
               for (final barcode in barcodes) {
                 if (barcode.rawValue != null && barcode.rawValue!.isNotEmpty) {
-                  _jaDetectou = true;
                   Navigator.pop(context, barcode.rawValue);
                   break;
                 }
