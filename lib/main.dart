@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() async {
@@ -35,9 +37,7 @@ class AuthWrapper extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
         if (snapshot.hasData) {
           return const HomeScreen();
@@ -87,15 +87,9 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } on FirebaseAuthException catch (e) {
-      String message = 'Ocorreu um erro.';
-      if (e.code == 'user-not-found' || e.code == 'wrong-password') {
-        message = 'E-mail ou senha incorretos.';
-      } else if (e.code == 'email-already-in-use') {
-        message = 'Este e-mail já está em uso.';
-      } else if (e.code == 'weak-password') {
-        message = 'A senha deve ter no mínimo 6 dígitos.';
-      }
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Ocorreu um erro.')),
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -153,9 +147,7 @@ class _LoginScreenState extends State<LoginScreen> {
               TextButton(
                 onPressed: () => setState(() => _isLogin = !_isLogin),
                 child: Text(
-                  _isLogin
-                      ? 'Não tem uma conta? Cadastre-se'
-                      : 'Já tem uma conta? Faça login',
+                  _isLogin ? 'Não tem conta? Cadastre-se' : 'Já tem conta? Faça login',
                 ),
               ),
             ],
@@ -166,8 +158,15 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final _user = FirebaseAuth.instance.currentUser;
 
   Future<void> _openMaps(String address) async {
     final query = Uri.encodeComponent(address);
@@ -177,10 +176,106 @@ class HomeScreen extends StatelessWidget {
     }
   }
 
+  void _showAddModal({String initialCode = ''}) {
+    final addressCtrl = TextEditingController(text: initialCode);
+    final complementCtrl = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          left: 20,
+          right: 20,
+          top: 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Adicionar Nova Parada',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: addressCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Endereço completo / Código',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: complementCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Complemento / Nome do cliente (opcional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () async {
+                final addr = addressCtrl.text.trim();
+                if (addr.isEmpty) return;
+
+                await FirebaseFirestore.instance.collection('deliveries').add({
+                  'userId': _user?.uid,
+                  'address': addr,
+                  'complement': complementCtrl.text.trim(),
+                  'status': 'pendente',
+                  'createdAt': FieldValue.serverTimestamp(),
+                });
+
+                if (mounted) Navigator.pop(ctx);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepOrange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: const Text('Salvar Entrega'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openScanner() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Escanear Pacote'),
+            backgroundColor: Colors.deepOrange,
+            foregroundColor: Colors.white,
+          ),
+          body: MobileScanner(
+            onDetect: (capture) {
+              final barcodes = capture.barcodes;
+              for (final barcode in barcodes) {
+                final code = barcode.rawValue;
+                if (code != null && code.isNotEmpty) {
+                  Navigator.pop(ctx);
+                  _showAddModal(initialCode: code);
+                  break;
+                }
+              }
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Circuito de Rotas'),
@@ -200,31 +295,112 @@ class HomeScreen extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             color: Colors.deepOrange.shade50,
             child: Text(
-              'Motorista: ${user?.email ?? "Ativo"}',
+              'Motorista: ${_user?.email ?? "Ativo"}',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Card(
-                  elevation: 2,
-                  child: ListTile(
-                    leading: const CircleAvatar(
-                      backgroundColor: Colors.deepOrange,
-                      child: Text('1', style: TextStyle(color: Colors.white)),
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('deliveries')
+                  .where('userId', isEqualTo: _user?.uid)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final docs = snapshot.data?.docs ?? [];
+                if (docs.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'Nenhuma entrega na rota.\nToque no botão + ou no scanner para adicionar.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey, fontSize: 16),
                     ),
-                    title: const Text('Ponto A - Rua Exemplo, 123'),
-                    subtitle: const Text('Franco da Rocha - SP'),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.navigation, color: Colors.deepOrange),
-                      onPressed: () => _openMaps('Rua Exemplo 123 Franco da Rocha SP'),
-                    ),
-                  ),
-                ),
-              ],
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final data = docs[index].data() as Map<String, dynamic>;
+                    final docId = docs[index].id;
+                    final isDone = data['status'] == 'concluido';
+
+                    return Card(
+                      elevation: 2,
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: isDone ? Colors.green : Colors.deepOrange,
+                          child: Text(
+                            '${index + 1}',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        title: Text(
+                          data['address'] ?? '',
+                          style: TextStyle(
+                            decoration: isDone ? TextDecoration.lineThrough : null,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        subtitle: Text(
+                          data['complement'] != null && data['complement'].toString().isNotEmpty
+                              ? data['complement']
+                              : (isDone ? 'Concluído' : 'Pendente'),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.navigation, color: Colors.deepOrange),
+                              onPressed: () => _openMaps(data['address'] ?? ''),
+                            ),
+                            IconButton(
+                              icon: Icon(
+                                isDone ? Icons.check_circle : Icons.radio_button_unchecked,
+                                color: isDone ? Colors.green : Colors.grey,
+                              ),
+                              onPressed: () {
+                                FirebaseFirestore.instance
+                                    .collection('deliveries')
+                                    .doc(docId)
+                                    .update({
+                                  'status': isDone ? 'pendente' : 'concluido',
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
             ),
+          ),
+        ],
+      ),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton(
+            heroTag: 'scanBtn',
+            onPressed: _openScanner,
+            backgroundColor: Colors.deepOrange.shade100,
+            foregroundColor: Colors.deepOrange,
+            child: const Icon(Icons.qr_code_scanner),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: 'addBtn',
+            onPressed: () => _showAddModal(),
+            backgroundColor: Colors.deepOrange,
+            foregroundColor: Colors.white,
+            child: const Icon(Icons.add),
           ),
         ],
       ),
