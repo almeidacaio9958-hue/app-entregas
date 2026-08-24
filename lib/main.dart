@@ -539,4 +539,31 @@ class _TelaGPSTempoRealState extends State<TelaGPSTempoReal> {
                               ),
                               title: Text(
                                 _paradas[index]['endereco'],
-                                style: TextS
+                                style: TextStyle(
+                                  decoration: entregue ? TextDecoration.lineThrough : null,
+                                  color: entregue ? Colors.grey : Colors.black87,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              trailing: IconButton(
+                                icon: Icon(
+                                  entregue ? Icons.check_box : Icons.check_box_outline_blank,
+                                  color: entregue ? Colors.green : Colors.grey,
+                                  size: 20,
+                                ),
+                                onPressed: () => _marcarComoEntregue(index),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
