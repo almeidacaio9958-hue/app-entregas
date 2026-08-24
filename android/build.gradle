@@ -8,21 +8,26 @@ allprojects {
 rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
-    project.evaluationDependsOn(':app')
 }
-
-// Força todos os submódulos (como google_mlkit_commons) a usarem o SDK 36
 subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty('android')) {
-            project.android {
-                compileSdkVersion 36
-                buildToolsVersion "35.0.0"
-            }
-        }
-    }
+    project.evaluationDependsOn(':app')
 }
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
+}
+
+subprojects { project ->
+    project.pluginManager.withPlugin('com.android.library') {
+        project.android {
+            compileSdkVersion 36
+            buildToolsVersion "35.0.0"
+        }
+    }
+    project.pluginManager.withPlugin('com.android.application') {
+        project.android {
+            compileSdkVersion 36
+            buildToolsVersion "35.0.0"
+        }
+    }
 }
