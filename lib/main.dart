@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() async {
@@ -17,10 +17,10 @@ class CircuitoEntregasApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Circuito Entregas',
+      title: 'Circuito de Rotas',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFF5722)),
         useMaterial3: true,
       ),
       home: const AuthWrapper(),
@@ -40,7 +40,7 @@ class AuthWrapper extends StatelessWidget {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
         if (snapshot.hasData) {
-          return const HomeScreen();
+          return const MainScreen();
         }
         return const LoginScreen();
       },
@@ -105,10 +105,10 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.local_shipping, size: 72, color: Colors.deepOrange),
+              const Icon(Icons.local_shipping, size: 72, color: Color(0xFFFF5722)),
               const SizedBox(height: 16),
               Text(
-                _isLogin ? 'Circuito Entregas' : 'Criar Conta',
+                _isLogin ? 'Circuito de Rotas' : 'Criar Conta',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
@@ -138,7 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   : ElevatedButton(
                       onPressed: _submit,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepOrange,
+                        backgroundColor: const Color(0xFFFF5722),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
@@ -158,17 +158,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+class MainScreen extends StatelessWidget {
+  const MainScreen({super.key});
 
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  final _user = FirebaseAuth.instance.currentUser;
-
-  Future<void> _openMaps(String address) async {
+  Future<void> _openExternalMap(String address) async {
     final query = Uri.encodeComponent(address);
     final url = Uri.parse('https://www.google.com/maps/search/?api=1&query=$query');
     if (await canLaunchUrl(url)) {
@@ -176,110 +169,20 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _showAddModal({String initialCode = ''}) {
-    final addressCtrl = TextEditingController(text: initialCode);
-    final complementCtrl = TextEditingController();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-          left: 20,
-          right: 20,
-          top: 20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'Adicionar Nova Parada',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: addressCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Endereço completo / Código',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: complementCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Complemento / Nome do cliente (opcional)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () async {
-                final addr = addressCtrl.text.trim();
-                if (addr.isEmpty) return;
-
-                await FirebaseFirestore.instance.collection('deliveries').add({
-                  'userId': _user?.uid,
-                  'address': addr,
-                  'complement': complementCtrl.text.trim(),
-                  'status': 'pendente',
-                  'createdAt': FieldValue.serverTimestamp(),
-                });
-
-                if (mounted) Navigator.pop(ctx);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepOrange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-              child: const Text('Salvar Entrega'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _openScanner() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (ctx) => Scaffold(
-          appBar: AppBar(
-            title: const Text('Escanear Pacote'),
-            backgroundColor: Colors.deepOrange,
-            foregroundColor: Colors.white,
-          ),
-          body: MobileScanner(
-            onDetect: (capture) {
-              final barcodes = capture.barcodes;
-              for (final barcode in barcodes) {
-                final code = barcode.rawValue;
-                if (code != null && code.isNotEmpty) {
-                  Navigator.pop(ctx);
-                  _showAddModal(initialCode: code);
-                  break;
-                }
-              }
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    // Coordenadas padrão da região de Franco da Rocha / SP
+    final initialLocation = const LatLng(-23.3228, -46.7275);
+
     return Scaffold(
+      backgroundColor: const Color(0xFFFCF7F6),
       appBar: AppBar(
-        title: const Text('Circuito de Rotas'),
-        backgroundColor: Colors.deepOrange,
+        title: const Text(
+          'Circuito de Rotas',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: const Color(0xFFFF5722),
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -290,117 +193,107 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Column(
         children: [
+          // Faixa com e-mail do motorista
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            color: Colors.deepOrange.shade50,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            color: const Color(0xFFFBECE8),
             child: Text(
-              'Motorista: ${_user?.email ?? "Ativo"}',
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              'Motorista: ${user?.email ?? "almeidacaio9958@gmail.com"}',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
             ),
           ),
+          // Mapa integrado
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('deliveries')
-                  .where('userId', isEqualTo: _user?.uid)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                final docs = snapshot.data?.docs ?? [];
-                if (docs.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'Nenhuma entrega na rota.\nToque no botão + ou no scanner para adicionar.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey, fontSize: 16),
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
-                    final docId = docs[index].id;
-                    final isDone = data['status'] == 'concluido';
-
-                    return Card(
-                      elevation: 2,
-                      margin: const EdgeInsets.symmetric(vertical: 6),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: isDone ? Colors.green : Colors.deepOrange,
-                          child: Text(
-                            '${index + 1}',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        title: Text(
-                          data['address'] ?? '',
-                          style: TextStyle(
-                            decoration: isDone ? TextDecoration.lineThrough : null,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        subtitle: Text(
-                          data['complement'] != null && data['complement'].toString().isNotEmpty
-                              ? data['complement']
-                              : (isDone ? 'Concluído' : 'Pendente'),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.navigation, color: Colors.deepOrange),
-                              onPressed: () => _openMaps(data['address'] ?? ''),
-                            ),
-                            IconButton(
-                              icon: Icon(
-                                isDone ? Icons.check_circle : Icons.radio_button_unchecked,
-                                color: isDone ? Colors.green : Colors.grey,
-                              ),
-                              onPressed: () {
-                                FirebaseFirestore.instance
-                                    .collection('deliveries')
-                                    .doc(docId)
-                                    .update({
-                                  'status': isDone ? 'pendente' : 'concluido',
-                                });
-                              },
-                            ),
-                          ],
-                        ),
+            flex: 4,
+            child: FlutterMap(
+              options: MapOptions(
+                initialCenter: initialLocation,
+                initialZoom: 14.0,
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.app_entregas',
+                ),
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: initialLocation,
+                      width: 40,
+                      height: 40,
+                      child: const Icon(
+                        Icons.location_on,
+                        color: Color(0xFFFF5722),
+                        size: 36,
                       ),
-                    );
-                  },
-                );
-              },
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-        ],
-      ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton(
-            heroTag: 'scanBtn',
-            onPressed: _openScanner,
-            backgroundColor: Colors.deepOrange.shade100,
-            foregroundColor: Colors.deepOrange,
-            child: const Icon(Icons.qr_code_scanner),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton(
-            heroTag: 'addBtn',
-            onPressed: () => _showAddModal(),
-            backgroundColor: Colors.deepOrange,
-            foregroundColor: Colors.white,
-            child: const Icon(Icons.add),
+          // Lista de entregas como antes
+          Expanded(
+            flex: 5,
+            child: ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                Card(
+                  elevation: 1.5,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  color: const Color(0xFFFFF9F8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 20,
+                          backgroundColor: const Color(0xFFFF5722),
+                          child: const Text(
+                            '1',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Ponto A - Rua Exemplo, 123',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Franco da Rocha - SP',
+                                style: TextStyle(
+                                  color: Colors.black54,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.navigation, color: Color(0xFFFF5722)),
+                          onPressed: () => _openExternalMap('Rua Exemplo, 123, Franco da Rocha - SP'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
