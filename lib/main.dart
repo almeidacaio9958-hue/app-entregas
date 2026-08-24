@@ -51,6 +51,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
   double _anguloDirecao = 0.0;
 
   bool _modoNavegacao = false;
+  bool _cardEntregaExpandido = true;
   bool _calculando = false;
 
   List<LatLng> _geometriaRota = [];
@@ -122,7 +123,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
       _mapController.move(_posicaoAtual, 16.0);
     } catch (_) {}
 
-    const settings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 3);
+    const settings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 2);
     _streamPosicao = Geolocator.getPositionStream(locationSettings: settings).listen((Position pos) {
       setState(() {
         _posicaoAtual = LatLng(pos.latitude, pos.longitude);
@@ -131,8 +132,10 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
           _anguloDirecao = pos.heading * (math.pi / 180.0);
         }
       });
+
+      // No modo direção, mantém a visão centrada e rotacionada com o carro
       if (_modoNavegacao) {
-        _mapController.move(_posicaoAtual, 17.5);
+        _mapController.moveAndRotate(_posicaoAtual, 17.5, pos.heading != 0 ? -pos.heading : 0.0);
       }
     });
   }
@@ -148,7 +151,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     final destino = pendentes.first['latLng'] as LatLng;
     final url = Uri.parse(
       'https://router.project-osrm.org/route/v1/driving/'
-      '${_posicaoAtual.longitude},${_posicaoAtual.latitude};'
+      '${_posicaoAtual.longitude},${_posicaoVeiculoLongitudeFix(_posicaoAtual.latitude)};'
       '${destino.longitude},${destino.latitude}'
       '?overview=full&geometries=geojson&steps=true',
     );
@@ -186,6 +189,23 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     }
   }
 
+  double _posicaoVeiculoLongitudeFix(double lat) => _posicaoAtual.latitude;
+
+  void _iniciarModoDirecao() {
+    setState(() {
+      _modoNavegacao = true;
+      _cardEntregaExpandido = true;
+    });
+    _mapController.moveAndRotate(_posicaoAtual, 17.5, -(_anguloDirecao * 180 / math.pi));
+  }
+
+  void _sairModoDirecao() {
+    setState(() {
+      _modoNavegacao = false;
+    });
+    _mapController.moveAndRotate(_posicaoAtual, 15.5, 0.0);
+  }
+
   Future<void> _escanearEtiquetaOCR() async {
     await Permission.camera.request();
     try {
@@ -194,7 +214,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Identificando endereço da etiqueta...')),
+        const SnackBar(content: Text('Lendo etiqueta e identificando destinatário...')),
       );
 
       final inputImage = InputImage.fromFilePath(foto.path);
@@ -321,7 +341,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     final concluidas = _listaParadas.where((p) => p['entregue']).length;
     final paradaAtualNum = math.min(totalParadas, concluidas + 1);
 
-    // Marcador do Carrinho/Navegador
+    // Marcador Navegador/Veículo
     final markerCarro = Marker(
       point: _posicaoAtual,
       width: 60,
@@ -355,7 +375,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
       ),
     );
 
-    // Marcadores das Paradas (Tags numeradas estilo Circuit)
+    // Marcadores Paradas numeradas
     final markersParadas = _listaParadas.asMap().entries.map((entry) {
       final idx = entry.key;
       final parada = entry.value;
@@ -393,10 +413,16 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
     return Scaffold(
       body: Stack(
         children: [
-          // 1. Mapa Base
+          // 1. MAPA BASE
           FlutterMap(
             mapController: _mapController,
-            options: MapOptions(initialCenter: _posicaoAtual, initialZoom: 15.5),
+            options: MapOptions(
+              initialCenter: _posicaoAtual,
+              initialZoom: 15.5,
+              onPositionChanged: (pos, hasGesture) {
+                // Permite arrastar e mover livremente o mapa
+              },
+            ),
             children: [
               TileLayer(
                 urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
@@ -417,7 +443,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
             ],
           ),
 
-          // 2. MODO NAVEGAÇÃO: Placa Superior Escura
+          // 2. MODO NAVEGAÇÃO: Placa Superior
           if (_modoNavegacao)
             Positioned(
               top: 40,
@@ -467,10 +493,10 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
               ),
             ),
 
-          // 3. Botões Laterais (Velocímetro + Camadas + Centralizar)
+          // 3. Botões Flutuantes Laterais
           Positioned(
             right: 16,
-            bottom: _modoNavegacao ? 220 : 340,
+            bottom: _modoNavegacao ? (_cardEntregaExpandido ? 230 : 90) : 340,
             child: Column(
               children: [
                 _botaoCircular(Icons.settings_outlined, () {}),
@@ -478,16 +504,16 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                 _botaoCircular(Icons.layers_outlined, () {}),
                 const SizedBox(height: 10),
                 _botaoCircular(Icons.navigation, () {
-                  _mapController.move(_posicaoAtual, 17.0);
+                  _mapController.moveAndRotate(_posicaoAtual, 17.5, _modoNavegacao ? -(_anguloDirecao * 180 / math.pi) : 0.0);
                 }, corIcone: const Color(0xFF1A73E8)),
               ],
             ),
           ),
 
-          // Velocímetro (Estilo Google)
+          // Velocímetro (km/h)
           Positioned(
             left: 16,
-            bottom: _modoNavegacao ? 220 : 340,
+            bottom: _modoNavegacao ? (_cardEntregaExpandido ? 230 : 90) : 340,
             child: Container(
               width: 54,
               height: 54,
@@ -507,7 +533,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
             ),
           ),
 
-          // 4. MODO NAVEGAÇÃO: Card Inferior Branco + Barra Preta de Status
+          // 4. MODO NAVEGAÇÃO: Card de Entrega e Barra Preta Inferior
           if (_modoNavegacao)
             Positioned(
               left: 0,
@@ -515,87 +541,103 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
               bottom: 0,
               child: Column(
                 children: [
-                  Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 14),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2))],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          paradaAtiva['endereco'] ?? '',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF181F2C)),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle)),
-                            const SizedBox(width: 6),
-                            Text('$paradaAtualNum/$totalParadas  ', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                            const Icon(Icons.inventory_2_outlined, size: 14, color: Colors.grey),
-                            Text(' ${paradaAtiva['tipo']}  ', style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                            const Icon(Icons.shopping_bag_outlined, size: 14, color: Colors.grey),
-                            Text(' ${paradaAtiva['pacote']}', style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _finalizarParadaAtual(false),
-                                icon: const Icon(Icons.cancel_outlined, color: Colors.red),
-                                label: const Text('Falhou', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                                style: OutlinedButton.styleFrom(
-                                  side: BorderSide(color: Colors.red.shade200),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  if (_cardEntregaExpandido)
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 14),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2))],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  paradaAtiva['endereco'] ?? '',
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF181F2C)),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () => _finalizarParadaAtual(true),
-                                icon: const Icon(Icons.check_circle_outline, color: Colors.green),
-                                label: const Text('Entregue', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green.shade50,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                              IconButton(
+                                icon: const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
+                                onPressed: () => setState(() => _cardEntregaExpandido = false),
+                              ),
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle)),
+                              const SizedBox(width: 6),
+                              Text('$paradaAtualNum/$totalParadas  ', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                              const Icon(Icons.inventory_2_outlined, size: 14, color: Colors.grey),
+                              Text(' ${paradaAtiva['tipo']}  ', style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                              const Icon(Icons.shopping_bag_outlined, size: 14, color: Colors.grey),
+                              Text(' ${paradaAtiva['pacote']}', style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _finalizarParadaAtual(false),
+                                  icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                                  label: const Text('Falhou', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                                  style: OutlinedButton.styleFrom(
+                                    side: BorderSide(color: Colors.red.shade200),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ],
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _finalizarParadaAtual(true),
+                                  icon: const Icon(Icons.check_circle_outline, color: Colors.green),
+                                  label: const Text('Entregue', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green.shade50,
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
                   const SizedBox(height: 8),
                   Container(
                     color: Colors.black,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white),
-                          onPressed: () => setState(() => _modoNavegacao = false),
+                          icon: const Icon(Icons.close, color: Colors.white, size: 26),
+                          onPressed: _sairModoDirecao,
                         ),
-                        Column(
-                          children: [
-                            Text(_tempoRestante, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                            Text('$_previsaoChegada • $_distanciaFormatada', style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                          ],
+                        GestureDetector(
+                          onTap: () => setState(() => _cardEntregaExpandido = !_cardEntregaExpandido),
+                          child: Column(
+                            children: [
+                              Text(_tempoRestante, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                              Text('$_previsaoChegada • $_distanciaFormatada', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                            ],
+                          ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.menu, color: Colors.white),
-                          onPressed: () => setState(() => _modoNavegacao = false),
+                          icon: const Icon(Icons.menu, color: Colors.white, size: 26),
+                          onPressed: _sairModoDirecao,
                         ),
                       ],
                     ),
@@ -670,7 +712,7 @@ class _TelaPrincipalNavegacaoState extends State<TelaPrincipalNavegacao> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: () => setState(() => _modoNavegacao = true),
+                              onPressed: _iniciarModoDirecao,
                               icon: const Icon(Icons.navigation, size: 16),
                               label: const Text('Navegar', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                               style: ElevatedButton.styleFrom(
