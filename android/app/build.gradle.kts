@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -27,10 +26,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
-
     defaultConfig {
         applicationId = "com.example.app_entregas"
         minSdk = flutter.minSdkVersion
@@ -48,8 +43,4 @@ android {
 
 flutter {
     source = "../.."
-}
-
-dependencies {
-    implementation("androidx.annotation:annotation:1.9.1")
 }
