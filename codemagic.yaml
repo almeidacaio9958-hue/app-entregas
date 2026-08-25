@@ -27,10 +27,12 @@ workflows:
       - name: Get Flutter packages
         script: |
           flutter pub get
-      - name: Build Android APK
+      - name: Build Android APK via Gradle
         script: |
-          flutter build apk --release --android-skip-build-dependency-validation
+          cd android
+          ./gradlew assembleRelease --no-daemon
     artifacts:
+      - android/app/build/outputs/**/*.apk
       - build/**/outputs/**/*.apk
     publishing:
       email:
