@@ -7,9 +7,12 @@ workflows:
       flutter: stable
       java: 17
     scripts:
-      - name: Clean and Prepare
+      - name: Recreate Android Folder Cleanly
         script: |
-          rm -rf android/app/src/main/java/io/flutter/plugins
+          rm -rf android
+          flutter create . --platforms=android
+      - name: Get Flutter packages
+        script: |
           flutter pub get
       - name: Build Android APK
         script: |
