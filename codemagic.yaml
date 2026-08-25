@@ -7,6 +7,12 @@ workflows:
       flutter: stable
       java: 17
     scripts:
+      - name: Clean project
+        script: |
+          flutter clean
+      - name: Recreate Android bindings
+        script: |
+          flutter create . --platforms=android
       - name: Get Flutter packages
         script: |
           flutter pub get
