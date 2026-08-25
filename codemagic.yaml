@@ -11,14 +11,14 @@ workflows:
         script: |
           rm -rf android
           flutter create . --platforms=android
-      - name: Force compileSdkVersion to 34 for all plugins
+      - name: Force compileSdkVersion to 36 for all modules
         script: |
           cat << 'EOF' >> android/build.gradle
-          subprojects {
+          allprojects {
               afterEvaluate { project ->
                   if (project.hasProperty("android")) {
                       project.android {
-                          compileSdkVersion 34
+                          compileSdkVersion 36
                       }
                   }
               }
