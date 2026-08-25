@@ -18,7 +18,7 @@ val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "
 
 android {
     namespace = "com.example.app_entregas"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 35
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -29,7 +29,7 @@ android {
     defaultConfig {
         applicationId = "com.example.app_entregas"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 35
         versionCode = flutterVersionCode.toInt()
         versionName = flutterVersionName
     }
@@ -43,4 +43,16 @@ android {
 
 flutter {
     source = "../.."
+}
+
+repositories {
+    google()
+    mavenCentral()
+    maven {
+        url = uri("https://storage.googleapis.com/download.flutter.io")
+    }
+}
+
+dependencies {
+    implementation("androidx.annotation:annotation:1.9.1")
 }
