@@ -7,11 +7,9 @@ workflows:
       flutter: stable
       java: 17
     scripts:
-      - name: Clean old kotlin directory
+      - name: Clean and Prepare
         script: |
-          rm -rf android/app/src/main/kotlin
-      - name: Get Flutter packages
-        script: |
+          rm -rf android/app/src/main/java/io/flutter/plugins
           flutter pub get
       - name: Build Android APK
         script: |
